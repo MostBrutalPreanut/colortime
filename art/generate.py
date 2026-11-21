@@ -52,9 +52,9 @@ def fetch(url):
         return Image.open(io.BytesIO(r.read())).convert("RGBA")
 
 
-def generate(model_id, prompt, seed=None):
+def generate(model_id, prompt, seed=None, kind="args"):
     m = CONFIG["models"][model_id]
-    payload = {"prompt": prompt, **m["args"]}
+    payload = {"prompt": prompt, **m.get(kind, m["args"])}
     if seed is not None:
         payload["seed"] = seed
     out = call(m["endpoint"], payload)
@@ -199,12 +199,38 @@ def layers(args):
     print(f"sheet: {out / 'sheet.jpg'}  (composites row: multiply, then cut-out)")
 
 
+def mockups(args):
+    M = CONFIG["mockups"]
+    models = pick(M["models"], args.models)
+    variants = [v for v in M["variants"] if not args.styles or v["id"] in args.styles.split(",")]
+    out = run_dir("mockups")
+    jobs = [(v, m) for v in variants for m in models]
+    print(f"{len(jobs)} mockups -> {out}")
+    cells, manifest = {}, []
+    with cf.ThreadPoolExecutor(6) as pool:
+        futs = {pool.submit(generate, m, v["prompt"], args.seed, "args_mockup"): (v, m) for v, m in jobs}
+        for f in cf.as_completed(futs):
+            v, m = futs[f]
+            try:
+                url, img = f.result()
+                img.convert("RGB").save(out / f"{v['id']}_{m}.jpg", quality=92)
+                cells[(v["id"], m)] = img
+                manifest.append({"variant": v["id"], "model": m, "url": url})
+                print(f"  ok   {v['id']} {m}")
+            except Exception as e:
+                manifest.append({"variant": v["id"], "model": m, "error": str(e)})
+                print(f"  FAIL {v['id']} {m}: {e}", file=sys.stderr)
+    contact_sheet([v["id"] for v in variants], models, cells, out / "sheet.jpg", tw=300, th=533)
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    print(f"sheet: {out / 'sheet.jpg'}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["batch", "layers"])
+    ap.add_argument("mode", choices=["batch", "layers", "mockups"])
     ap.add_argument("--styles")
     ap.add_argument("--subjects")
     ap.add_argument("--models")
     ap.add_argument("--seed", type=int)
     a = ap.parse_args()
-    batch(a) if a.mode == "batch" else layers(a)
+    {"batch": batch, "layers": layers, "mockups": mockups}[a.mode](a)
