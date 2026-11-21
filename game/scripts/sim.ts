@@ -1,21 +1,18 @@
-// Headless balance check: an idle player who checks in constantly and buys
-// greedily. Prints when each milestone happens.
+// Headless balance check: a player who checks in constantly and buys greedily.
 //   npm run sim            (3 hours, no tapping)
 //   npm run sim -- 24 2    (24 hours, 2 taps per second)
 
-import type { Color } from "../src/core/colors";
-import { PAINTINGS, UPGRADES, type Cost } from "../src/core/data";
+import { isPlaceable, type Color } from "../src/core/colors";
+import { BACKGROUNDS, PIECES, UPGRADES, type Cost } from "../src/core/data";
 import {
-  buildWheel, buyColor, buyLevels, buyUpgrade, canAfford, colorUnlockCost, colorsForSale, currentPainting,
-  incomeByColor, levelCost, openSlot, paint, place, slotUnlockCost, tap, tick, upgradeCost, upgradeVisible,
-  wheelUnlockCost,
+  brushRate, buildWheel, buyLevels, currentLayer, ringStats, buyTube, buyUpgrade, canAfford, compose, easelDone, incomeByColor, isFull, levelCost,
+  openSlot, place, paintNext, salePrice, sell, slotUnlockCost, tap, tick, tinCost, tubeCost, tubesForSale,
+  upgradeCost, upgradeTin, upgradeVisible, wheelUnlockCost,
 } from "../src/core/game";
 import { newGame, type GameState } from "../src/core/state";
 
 const hours = Number(process.argv[2] ?? 3);
 const tapsPerSecond = Number(process.argv[3] ?? 0);
-
-/** Ring layout the bot aims for on each wheel, outer to inner. */
 const PLAN: Color[] = ["red", "yellow", "blue", "green", "blue", "violet"];
 
 const s: GameState = newGame(0);
@@ -25,74 +22,106 @@ const fmtT = (sec: number) => {
   return h ? `${h}h${String(m).padStart(2, "0")}m` : `${m}m${String(x).padStart(2, "0")}s`;
 };
 const note = (t: number, msg: string) => log.push(`${fmtT(t).padStart(7)}  ${msg}`);
+const coins = (c: Cost | null) => c?.coins ?? Infinity;
 
-/** Seconds of income this cost represents; lower is a better buy. */
-function weight(cost: Cost): number {
+/** Best composition the bot can paint with colors it is making: coins per second of painting. */
+function bestComposition() {
   const inc = incomeByColor(s);
-  return Math.max(...Object.entries(cost).map(([c, n]) => (n ?? 0) / Math.max(1e-9, inc[c as Color] ?? 0)));
+  let best: { bg: string; pieces: string[]; score: number } | null = null;
+  const ok = (layers: { color: Color }[]) => layers.every((l) => (inc[l.color] ?? 0) > 0);
+  for (const bg of BACKGROUNDS) {
+    if (!ok(bg.layers)) continue;
+    for (const a of PIECES) for (const b of [null, ...PIECES]) {
+      if (b && b.id <= a.id) continue;
+      const pieces = b ? [a.id, b.id] : [a.id];
+      const e = compose(s, { bg: bg.id, pieces, title: "" });
+      if (!ok(e.layers)) continue;
+      // Time limited by the slowest color's supply
+      const need: Partial<Record<Color, number>> = {};
+      for (const l of e.layers) need[l.color] = (need[l.color] ?? 0) + l.amount;
+      const total = e.layers.reduce((n, l) => n + l.amount, 0);
+      const secs = Math.max(total / brushRate(s), ...Object.entries(need).map(([c, n]) => n! / (inc[c as Color] ?? 1e-9)));
+      const score = salePrice(s, e) / secs;
+      if (!best || score > best.score) best = { bg: bg.id, pieces, score };
+    }
+  }
+  return best;
 }
 
 let t = 0;
-const seenOwned = new Set(s.owned);
-const end = hours * 3600;
-let purchases = 0;
-while (t < end) {
+const seen = new Set(s.owned);
+let small = 0;
+let sold = 0;
+while (t < hours * 3600) {
   tick(s, 1);
   for (let k = 0; k < tapsPerSecond; k++) tap(s, 0);
   t++;
+  for (const c of s.owned) if (!seen.has(c)) { seen.add(c); note(t, `got ${c}`); }
 
-  for (const c of s.owned) if (!seenOwned.has(c)) { seenOwned.add(c); note(t, `discovered ${c}`); }
+  if (easelDone(s.easel)) {
+    const title = s.easel!.comp.title;
+    const p = sell(s);
+    sold++;
+    if (sold <= 4 || sold % 100 === 0) note(t, `sold "${title}" for ${p} (#${sold})`);
+  }
+  if (s.painted >= 3 && (t % 30 === 0 || !s.easel)) {
+    const b = bestComposition();
+    if (b) paintNext(s, { bg: b.bg, pieces: b.pieces, title: `${b.bg}+${b.pieces.join("+")}` });
+  }
 
-  // Big goals first: colors, slots, wheels, paintings
-  for (const c of colorsForSale(s)) if (buyColor(s, c)) note(t, `bought ${c}`);
+  for (const c of tubesForSale(s)) if (canAfford(s, tubeCost(c)!) && buyTube(s, c)) note(t, `bought a ${c} tube`);
   s.wheels.forEach((w, wi) => {
-    if (slotUnlockCost(s, wi) && canAfford(s, slotUnlockCost(s, wi)!) && openSlot(s, wi)) note(t, `wheel ${wi + 1}: opened slot ${w.slots.length}`);
+    const oc = slotUnlockCost(s, wi);
+    if (oc && canAfford(s, oc) && openSlot(s, wi)) note(t, `wheel ${wi + 1}: opened ring ${w.slots.length}`);
     w.slots.forEach((slot, i) => {
       const want = PLAN[i];
-      if (slot.color !== want && s.owned.includes(want)) place(s, wi, i, want);
+      const busy = currentLayer(s.easel);
+      const keep = busy && slot.color === busy.color && !(incomeByColor(s)[busy.color]! > (ringStats(s, wi, i)?.rate ?? 0));
+      if (slot.color !== want && s.owned.includes(want) && !keep) place(s, wi, i, want);
       else if (!slot.color) {
-        const fallback = [...s.owned].reverse().find((c) => c !== w.slots[i - 1]?.color);
+        const fallback = [...s.owned].reverse().find((c) => c !== w.slots[i - 1]?.color && ["red", "yellow", "blue", "orange", "green", "violet"].includes(c));
         if (fallback) place(s, wi, i, fallback);
       }
     });
   });
+  // Like a player would: if the easel waits on a color nothing grinds, swap a ring to it
+  const waiting = currentLayer(s.easel);
+  const inc = incomeByColor(s);
+  if (waiting && !(inc[waiting.color] ?? 0) && s.owned.includes(waiting.color) && isPlaceable(waiting.color)) {
+    const needed = new Set(s.easel!.layers.filter((l) => l.done < l.amount).map((l) => l.color));
+    const w0 = s.wheels[0].slots;
+    const i = w0.findIndex((x) => !x.color || !needed.has(x.color));
+    if (i >= 0) { place(s, 0, i, waiting.color); note(t, `swapped ring ${i + 1} to ${waiting.color}`); }
+  }
   const wc = wheelUnlockCost(s);
   if (wc && canAfford(s, wc) && buildWheel(s)) note(t, `built wheel ${s.wheels.length}`);
-  const p = currentPainting(s);
-  if (p && canAfford(s, p.cost) && paint(s)) note(t, `painted "${p.name}" (${s.painting}/${PAINTINGS.length})`);
 
-  // Reserve for the next big goal so small buys don't starve it
-  const goals: Cost[] = [];
-  const nextColor = colorsForSale(s)[0];
-  if (nextColor) goals.push(colorUnlockCost(nextColor)!);
-  s.wheels.forEach((_, wi) => { const c = slotUnlockCost(s, wi); if (c) goals.push(c); });
-  if (p) goals.push(p.cost);
-  const reserved = (color: Color) => goals.some((g) => (g[color] ?? 0) > 0 && weight(g) < 600);
+  // Save for the next big goal before spending on small things
+  const goals = [
+    ...tubesForSale(s).map((c) => coins(tubeCost(c))),
+    ...s.wheels.map((_, wi) => coins(slotUnlockCost(s, wi))),
+    coins(wheelUnlockCost(s)),
+  ].filter(isFinite);
+  const reserve = goals.length ? Math.min(...goals) : 0;
+  const income = s.stats.coinsEarned / Math.max(1, t);
+  const spendable = () => (reserve / Math.max(income, 1e-9) < 300 ? s.coins - reserve : s.coins);
 
-  // Then the cheapest small buy, measured in seconds of income
   for (let guard = 0; guard < 50; guard++) {
-    let best: { w: number; run: () => boolean } | null = null;
+    const options: { c: number; run: () => boolean }[] = [];
     s.wheels.forEach((wheel, wi) => wheel.slots.forEach((slot, i) => {
-      const c = levelCost(s, wi, i);
-      if (c && slot.color && canAfford(s, c) && !reserved(slot.color)) {
-        const w = weight(c);
-        if (!best || w < best.w) best = { w, run: () => buyLevels(s, wi, i, 1) };
-      }
+      if (slot.color) options.push({ c: coins(levelCost(s, wi, i)), run: () => buyLevels(s, wi, i, 1) });
     }));
-    for (const u of UPGRADES) {
-      const c = upgradeCost(s, u);
-      if (c && upgradeVisible(s, u) && canAfford(s, c) && !u.pay.some(reserved)) {
-        const w = weight(c) * 0.8;
-        if (!best || w < best.w) best = { w, run: () => buyUpgrade(s, u.id) };
-      }
-    }
-    if (!best || !(best as { run: () => boolean }).run()) break;
-    purchases++;
+    for (const u of UPGRADES) if (upgradeVisible(s, u)) options.push({ c: coins(upgradeCost(s, u)) * 0.7, run: () => buyUpgrade(s, u.id) });
+    for (const c of s.owned) if (isFull(s, c)) options.push({ c: coins(tinCost(s, c)) * 1.5, run: () => upgradeTin(s, c) });
+    const best = options.filter((o) => o.c <= spendable()).sort((a, b) => a.c - b.c)[0];
+    if (!best || !best.run()) break;
+    small++;
   }
 }
 
-console.log(`Idle bot, ${hours} h, ${tapsPerSecond} taps/s, ${purchases} small purchases\n`);
+console.log(`Bot, ${hours} h, ${tapsPerSecond} taps/s: ${sold} paintings sold, ${small} small purchases\n`);
 console.log(log.join("\n"));
-console.log("\nWheel 1 at the end:");
-s.wheels[0].slots.forEach((sl, i) => console.log(`  slot ${i + 1}: ${sl.color ?? "-"} level ${sl.level}`));
-console.log("\nWorkshop:", JSON.stringify(s.workshop));
+console.log("\nWheel 1:", s.wheels[0].slots.map((x) => `${x.color}:${x.level}`).join("  "));
+console.log("Workshop:", JSON.stringify(s.workshop));
+console.log("Tin levels:", JSON.stringify(Object.fromEntries(Object.entries(s.tin).filter(([, v]) => v))));
+console.log(`Coins earned ${Math.round(s.stats.coinsEarned)}, paint spilled ${Math.round(s.stats.spilled)}`);

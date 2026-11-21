@@ -2,24 +2,29 @@
 // drawing, so the same code runs in the browser, in tests and in the balance
 // simulator.
 
-import { isPlaceable, PRIMARIES, SECONDARIES, seamBetween, type Color } from "./colors";
+import { isPlaceable, jobOf, PRIMARIES, SECONDARIES, seamBetween, type Color } from "./colors";
 import {
-  BLEND_SHARE, CHIME_EVERY, CHIME_MULT, COLOR_UNLOCKS, CONTRAST_CHIME_MULT, DISCOVER_AT,
-  LANDMARK_EVERY, MILESTONES, OFFLINE, PAINTINGS, SLOTS, TAP_SECONDS, UPGRADES, WHEELS,
-  type Cost, type UpgradeDef, type UpgradeEffect,
+  BACKGROUNDS, VARIETY, BLEND_SHARE, BRUSH_RATE, CANVAS, CHIME_EVERY, CHIME_MULT, CONTRAST_CHIME_MULT, DISCOVER_AT,
+  HANG_BONUS, HOOKS, LANDMARK_EVERY, MAX_PIECES, MILESTONES, OFFLINE, PAINT_VALUE, PIECES, SLOTS, TAP_SECONDS,
+  TIN, TUBES, TUTORIAL, UPGRADES, WHEEL_SCALE, WHEELS, type Cost, type UpgradeDef, type UpgradeEffect,
 } from "./data";
-import { newSlot, type GameState } from "./state";
+import { newSlot, type Composition, type Easel, type GameState } from "./state";
 
 // ---------------------------------------------------------------------------
 // Costs
 
+const have = (s: GameState, k: string) => (k === "coins" ? s.coins : s.pigment[k as Color]);
+
 export function canAfford(s: GameState, cost: Cost): boolean {
-  return Object.entries(cost).every(([c, n]) => s.pigment[c as Color] >= (n ?? 0));
+  return Object.entries(cost).every(([k, n]) => have(s, k) >= (n ?? 0));
 }
 
 function pay(s: GameState, cost: Cost): boolean {
   if (!canAfford(s, cost)) return false;
-  for (const [c, n] of Object.entries(cost)) s.pigment[c as Color] -= n ?? 0;
+  for (const [k, n] of Object.entries(cost)) {
+    if (k === "coins") s.coins -= n ?? 0;
+    else s.pigment[k as Color] -= n ?? 0;
+  }
   return true;
 }
 
@@ -41,34 +46,43 @@ function sumEffects(s: GameState, match: (e: UpgradeEffect) => number | null): n
   return total;
 }
 
-function paintingBonus(s: GameState, color: Color): number {
-  let b = 0;
-  for (const id of s.hung) {
-    const p = PAINTINGS.find((x) => x.id === id);
-    if (p && p.bonus.color === color) b += p.bonus.per;
-  }
-  return b;
+const rank = (s: GameState, kind: UpgradeEffect["kind"]) =>
+  UPGRADES.filter((u) => u.effect.kind === kind).reduce((n, u) => n + (s.workshop[u.id] ?? 0), 0);
+
+/** Hung paintings boost every color they contain. */
+function hangBonus(s: GameState, color: Color): number {
+  return s.hung.filter((h) => h.colors.includes(color)).length * HANG_BONUS;
+}
+
+// ---------------------------------------------------------------------------
+// Tin
+
+export function tinCap(s: GameState, c: Color): number {
+  return TIN.base * TIN.perLevel ** s.tin[c];
+}
+
+export function tinCost(s: GameState, c: Color): Cost {
+  return { coins: Math.ceil(TIN.first * TIN.growth ** s.tin[c]) };
+}
+
+export function upgradeTin(s: GameState, c: Color): boolean {
+  if (!pay(s, tinCost(s, c))) return false;
+  s.tin[c]++;
+  return true;
 }
 
 // ---------------------------------------------------------------------------
 // Ring stats
 
 export interface RingStats {
-  /** Seconds per turn */
   turn: number;
-  /** Pigment paid by an ordinary turn */
   pay: number;
-  /** Multiplier on every twelfth turn */
   chime: number;
-  /** Average pigment per second, chimes included */
   rate: number;
-  /** Next milestone level, or null when past the last */
   nextMilestone: number | null;
 }
 
-function milestonesPassed(level: number): number {
-  return MILESTONES.filter((m) => level >= m).length;
-}
+const milestonesPassed = (level: number) => MILESTONES.filter((m) => level >= m).length;
 
 export function ringStats(s: GameState, w: number, i: number, offline = false): RingStats | null {
   const wheel = s.wheels[w];
@@ -76,7 +90,6 @@ export function ringStats(s: GameState, w: number, i: number, offline = false): 
   if (!slot || !slot.color) return null;
   const color = slot.color;
   const def = SLOTS[i];
-  const innermost = i === wheel.slots.length - 1 && i > 0;
 
   const speed =
     2 ** milestonesPassed(slot.level) *
@@ -87,20 +100,16 @@ export function ringStats(s: GameState, w: number, i: number, offline = false): 
 
   let payPerTurn =
     slot.level * def.yieldPerLevel *
-    (1 + sumEffects(s, (e) => (e.kind === "colorYield" && e.color === color ? e.per : null)) + paintingBonus(s, color)) *
-    (1 + sumEffects(s, (e) => (e.kind === "allYield" ? e.per : null))) *
-    (1 + (innermost ? sumEffects(s, (e) => (e.kind === "slotYield" ? e.per : null)) : 0));
+    (1 + sumEffects(s, (e) => (e.kind === "colorYield" && e.color === color ? e.per : null)) + hangBonus(s, color)) *
+    (1 + sumEffects(s, (e) => (e.kind === "allYield" ? e.per : null)));
 
-  // Past four turns a second, extra speed is paid out as extra pigment
+  // Past four turns a second, extra speed is paid out as extra paint
   const FLOW = 0.25;
   if (turn < FLOW) {
     payPerTurn *= FLOW / turn;
     turn = FLOW;
   }
-
-  if (offline) {
-    payPerTurn *= OFFLINE.efficiency + sumEffects(s, (e) => (e.kind === "colorOffline" && e.color === color ? e.per : null));
-  }
+  if (offline) payPerTurn *= OFFLINE.efficiency;
 
   const contrast = [wheel.slots[i - 1], wheel.slots[i + 1]].some(
     (n) => n?.color && seamBetween(color, n.color).kind === "contrast",
@@ -112,7 +121,6 @@ export function ringStats(s: GameState, w: number, i: number, offline = false): 
 }
 
 export interface SeamInfo {
-  /** Index of the outer ring of the pair */
   outer: number;
   color: Color;
   rate: number;
@@ -130,12 +138,12 @@ export function seams(s: GameState, w: number, offline = false): SeamInfo[] {
     if (seam.kind !== "blend") continue;
     const ra = ringStats(s, w, i, offline)!.rate;
     const rb = ringStats(s, w, i + 1, offline)!.rate;
-    out.push({ outer: i, color: seam.color, rate: share * Math.min(ra, rb) * (1 + paintingBonus(s, seam.color)) });
+    out.push({ outer: i, color: seam.color, rate: share * Math.min(ra, rb) * (1 + hangBonus(s, seam.color)) });
   }
   return out;
 }
 
-/** Pigment per second of each color across every wheel. */
+/** Paint per second of each color across every wheel. */
 export function incomeByColor(s: GameState): Partial<Record<Color, number>> {
   const out: Partial<Record<Color, number>> = {};
   s.wheels.forEach((wheel, w) => {
@@ -159,15 +167,20 @@ export interface Payout {
   chime: boolean;
 }
 
+/** Put paint in the tin. Whatever doesn't fit is spilled. */
 function gain(s: GameState, color: Color, amount: number): void {
-  s.pigment[color] += amount;
   s.earned[color] += amount;
+  const room = Math.max(0, tinCap(s, color) - s.pigment[color]);
+  const kept = Math.min(room, amount);
+  s.pigment[color] += kept;
+  s.stats.spilled += amount - kept;
   if (SECONDARIES.includes(color) && !s.owned.includes(color) && s.earned[color] >= DISCOVER_AT) {
     s.owned.push(color);
   }
 }
 
-/** Advance rings by `seconds` of their own time and pay what they complete. */
+export const isFull = (s: GameState, c: Color) => s.pigment[c] >= tinCap(s, c) - 1e-9;
+
 function advance(s: GameState, w: number, i: number, seconds: number, offline: boolean, payouts?: Payout[]): void {
   const slot = s.wheels[w].slots[i];
   const st = ringStats(s, w, i, offline);
@@ -181,37 +194,48 @@ function advance(s: GameState, w: number, i: number, seconds: number, offline: b
   const amount = st.pay * (turns + chimes * (st.chime - 1));
   gain(s, slot.color, amount);
   s.stats.chimes += chimes;
-  if (payouts && turns <= 3) {
-    payouts.push({ wheel: w, slot: i, color: slot.color, amount, chime: chimes > 0 });
-  }
+  if (payouts && turns <= 3) payouts.push({ wheel: w, slot: i, color: slot.color, amount, chime: chimes > 0 });
 }
 
-/** Run the game forward. Seams trickle continuously; rings pay per turn. */
-export function tick(s: GameState, seconds: number, payouts?: Payout[], offline = false): void {
-  if (seconds <= 0) return;
+function step(s: GameState, seconds: number, payouts: Payout[] | undefined, offline: boolean): void {
   s.wheels.forEach((wheel, w) => {
     const flows = seams(s, w, offline);
     wheel.slots.forEach((_, i) => advance(s, w, i, seconds, offline, payouts));
     for (const f of flows) gain(s, f.color, f.rate * seconds);
   });
+  pour(s, seconds);
+}
+
+/** Run the game forward. Long spans run in small steps so the easel keeps up with the wheels. */
+export function tick(s: GameState, seconds: number, payouts?: Payout[], offline = false): void {
+  if (seconds <= 0) return;
+  const CHUNK = 5;
+  let left = seconds;
+  while (left > 0) {
+    const dt = Math.min(CHUNK, left);
+    step(s, dt, payouts, offline);
+    left -= dt;
+  }
   if (!offline) s.stats.playSeconds += seconds;
 }
 
-/** Pigment earned while the game was closed. Returns what was gained. */
-export function catchUp(s: GameState, now: number): { seconds: number; gained: Partial<Record<Color, number>> } {
+/** Paint made while the game was closed. Returns what changed. */
+export function catchUp(s: GameState, now: number) {
   const away = Math.max(0, (now - s.lastSeen) / 1000);
   s.lastSeen = now;
   const cap = OFFLINE.capHours * 3600 + sumEffects(s, (e) => (e.kind === "offlineCap" ? e.perMinutes * 60 : null));
   const seconds = Math.min(away, cap);
-  if (seconds < 30) return { seconds: 0, gained: {} };
+  const result = { seconds: 0, gained: {} as Partial<Record<Color, number>>, coins: 0, paintings: 0 };
+  if (seconds < 30) return result;
   const before = { ...s.pigment };
+  const coins = s.coins;
+  const painted = s.painted;
   tick(s, seconds, undefined, true);
-  const gained: Partial<Record<Color, number>> = {};
   for (const c of Object.keys(before) as Color[]) {
     const d = s.pigment[c] - before[c];
-    if (d > 0) gained[c] = d;
+    if (d > 0) result.gained[c] = d;
   }
-  return { seconds, gained };
+  return { ...result, seconds, coins: s.coins - coins, paintings: s.painted - painted };
 }
 
 export function tap(s: GameState, w: number, payouts?: Payout[]): void {
@@ -221,23 +245,144 @@ export function tap(s: GameState, w: number, payouts?: Payout[]): void {
 }
 
 // ---------------------------------------------------------------------------
-// Actions
+// Easel
 
-/** Later wheels cost more to open slots in. */
-const wheelScale = (w: number) => 6 ** w;
+export const background = (id: string) => BACKGROUNDS.find((b) => b.id === id)!;
+export const piece = (id: string) => PIECES.find((p) => p.id === id)!;
+
+export function brushRate(s: GameState): number {
+  return BRUSH_RATE * CANVAS.paint ** rank(s, "canvas") * (1 + sumEffects(s, (e) => (e.kind === "brush" ? e.per : null)));
+}
+
+/** Build an easel from a composition. Amounts and price grow with Bigger Canvas. */
+export function compose(s: GameState, comp: Composition, tutorial = -1): Easel {
+  const size = rank(s, "canvas");
+  const parts = [background(comp.bg), ...comp.pieces.map(piece)];
+  const layers = parts.flatMap((p) => p.layers).map((l) => ({ ...l, amount: l.amount * CANVAS.paint ** size, done: 0 }));
+  const paint = layers.reduce((v, l) => v + l.amount * PAINT_VALUE[jobOf(l.color)], 0);
+  const colors = new Set(layers.map((l) => l.color)).size;
+  const variety = (1 + VARIETY.perExtraColor * Math.max(0, colors - 1)) * (1 + VARIETY.perPiece * comp.pieces.length);
+  return { comp, layers, tutorial, price: Math.ceil(paint * variety * (CANVAS.price / CANVAS.paint) ** size) };
+}
+
+export function salePrice(s: GameState, e: Easel): number {
+  return Math.ceil(e.price * (1 + sumEffects(s, (x) => (x.kind === "price" ? x.per : null))));
+}
+
+export const easelDone = (e: Easel | null) => !!e && e.layers.every((l) => l.done >= l.amount - 1e-9);
+
+/** The layer being painted, or null when finished. */
+export function currentLayer(e: Easel | null) {
+  return e?.layers.find((l) => l.done < l.amount - 1e-9) ?? null;
+}
+
+export function easelProgress(e: Easel | null): number {
+  if (!e) return 0;
+  const total = e.layers.reduce((n, l) => n + l.amount, 0);
+  if (total === 0) return 1;
+  return e.layers.reduce((n, l) => n + l.done, 0) / total;
+}
+
+/** Colors the player can make or has, so the composer can mark pieces they can't paint yet. */
+export function canEverPaint(s: GameState, c: Color): boolean {
+  return s.owned.includes(c) || s.earned[c] > 0;
+}
+
+/** Move paint from the tin into the current painting, layer by layer. */
+function pour(s: GameState, seconds: number): void {
+  if (!s.easel) {
+    if (s.painted < TUTORIAL.length) setTutorial(s);
+    else if (s.lastComp && rank(s, "apprentice") > 0) s.easel = compose(s, s.lastComp);
+    if (!s.easel) return;
+  }
+  let budget = brushRate(s) * seconds;
+  while (budget > 0) {
+    const layer = currentLayer(s.easel);
+    if (!layer) break;
+    const take = Math.min(budget, s.pigment[layer.color], layer.amount - layer.done);
+    if (take <= 0) break;
+    s.pigment[layer.color] -= take;
+    layer.done += take;
+    budget -= take;
+  }
+  if (easelDone(s.easel) && rank(s, "apprentice") > 0 && s.easel.tutorial < 0) sell(s);
+}
+
+function setTutorial(s: GameState): void {
+  const t = TUTORIAL[s.painted];
+  if (t) s.easel = compose(s, { bg: t.bg, pieces: t.pieces, title: t.title }, s.painted);
+}
+
+/** Start the player's own painting. Replaces nothing: the easel must be empty. */
+export function startPainting(s: GameState, comp: Composition): boolean {
+  if (s.easel || s.painted < TUTORIAL.length) return false;
+  if (!background(comp.bg) || comp.pieces.length > MAX_PIECES || comp.pieces.some((p) => !piece(p))) return false;
+  s.easel = compose(s, comp);
+  s.lastComp = comp;
+  return true;
+}
+
+/** Choose what to paint after the current painting. Starts now if the easel is free. */
+export function paintNext(s: GameState, comp: Composition): boolean {
+  if (s.painted < TUTORIAL.length) return false;
+  if (!background(comp.bg) || comp.pieces.length > MAX_PIECES || comp.pieces.some((p) => !piece(p))) return false;
+  s.lastComp = comp;
+  if (!s.easel) s.easel = compose(s, comp);
+  return true;
+}
+
+/** Take the painting off the easel unfinished. The paint already used is lost. */
+export function scrape(s: GameState): void {
+  if (s.easel && s.easel.tutorial < 0) s.easel = null;
+}
+
+function finish(s: GameState): void {
+  const e = s.easel!;
+  const t = e.tutorial >= 0 ? TUTORIAL[e.tutorial] : null;
+  if (t?.reward && !s.owned.includes(t.reward)) s.owned.push(t.reward);
+  s.painted++;
+  s.easel = null;
+  if (s.painted < TUTORIAL.length) setTutorial(s);
+  else if (s.lastComp && rank(s, "apprentice") > 0) s.easel = compose(s, s.lastComp);
+}
+
+export function sell(s: GameState): number {
+  if (!easelDone(s.easel)) return 0;
+  const price = salePrice(s, s.easel!);
+  s.coins += price;
+  s.stats.coinsEarned += price;
+  s.stats.sold++;
+  finish(s);
+  return price;
+}
+
+export function hang(s: GameState): boolean {
+  if (!easelDone(s.easel) || s.hung.length >= HOOKS) return false;
+  const e = s.easel!;
+  s.hung.push({ title: e.comp.title, colors: [...new Set(e.layers.map((l) => l.color))] });
+  finish(s);
+  return true;
+}
+
+export function unhang(s: GameState, index: number): void {
+  s.hung.splice(index, 1);
+}
+
+// ---------------------------------------------------------------------------
+// Wheels: levels, rings, colors
+
+const wheelScale = (w: number) => WHEEL_SCALE ** w;
 
 export function levelCost(s: GameState, w: number, i: number, count = 1): Cost | null {
   const slot = s.wheels[w]?.slots[i];
-  if (!slot?.color) return null;
+  if (!slot) return null;
   const def = SLOTS[i];
   const discount = 1 - Math.min(0.6, sumEffects(s, (e) => (e.kind === "levelDiscount" ? e.per : null)));
   const g = def.growth;
-  // Sum of a geometric series from the current level
   const total = def.levelBase * wheelScale(w) * g ** slot.level * ((g ** count - 1) / (g - 1)) * discount;
-  return { [slot.color]: Math.ceil(total) };
+  return { coins: Math.ceil(total) };
 }
 
-/** How many levels the player can afford right now. */
 export function maxAffordable(s: GameState, w: number, i: number): number {
   let n = 0;
   while (n < 1000) {
@@ -259,8 +404,7 @@ export function buyLevels(s: GameState, w: number, i: number, count: number): bo
 export function slotUnlockCost(s: GameState, w: number): Cost | null {
   const next = s.wheels[w].slots.length;
   if (next >= SLOTS.length) return null;
-  const scale = wheelScale(w);
-  return Object.fromEntries(Object.entries(SLOTS[next].unlock).map(([c, n]) => [c, (n ?? 0) * scale]));
+  return { coins: SLOTS[next].unlock * wheelScale(w) };
 }
 
 export function openSlot(s: GameState, w: number): boolean {
@@ -280,24 +424,26 @@ export function place(s: GameState, w: number, i: number, color: Color | null): 
   return true;
 }
 
-export function colorUnlockCost(color: Color): Cost | null {
-  return COLOR_UNLOCKS[color] ?? null;
+/** Primaries the art shop sells as tubes, in order. */
+export function tubesForSale(s: GameState): Color[] {
+  return PRIMARIES.filter((c) => !s.owned.includes(c) && TUBES[c] !== undefined);
 }
 
-export function buyColor(s: GameState, color: Color): boolean {
-  const cost = COLOR_UNLOCKS[color];
-  if (!cost || s.owned.includes(color) || !pay(s, cost)) return false;
-  s.owned.push(color);
+export function tubeCost(c: Color): Cost | null {
+  const n = TUBES[c];
+  return n === undefined ? null : { coins: n };
+}
+
+export function buyTube(s: GameState, c: Color): boolean {
+  const cost = tubeCost(c);
+  if (!cost || s.owned.includes(c) || !pay(s, cost)) return false;
+  s.owned.push(c);
   return true;
 }
 
-/** Primaries the player can buy next, in order. */
-export function colorsForSale(s: GameState): Color[] {
-  return PRIMARIES.filter((c) => !s.owned.includes(c) && COLOR_UNLOCKS[c]);
-}
-
 export function wheelUnlockCost(s: GameState): Cost | null {
-  return WHEELS[s.wheels.length]?.unlock ?? null;
+  const w = WHEELS[s.wheels.length];
+  return w ? { coins: w.unlock } : null;
 }
 
 export function buildWheel(s: GameState): boolean {
@@ -307,22 +453,16 @@ export function buildWheel(s: GameState): boolean {
   return true;
 }
 
-// Workshop ------------------------------------------------------------------
+// ---------------------------------------------------------------------------
+// Workshop
 
 export function upgradeCost(s: GameState, u: UpgradeDef): Cost | null {
-  const rank = s.workshop[u.id] ?? 0;
-  if (u.max !== undefined && rank >= u.max) return null;
-  const discount = u.pay.some((c) => c === "red" || c === "yellow")
-    ? 1 - Math.min(0.3, sumEffects(s, (e) => (e.kind === "workshopDiscount" ? e.per : null)))
-    : 1;
-  const price = Math.ceil(u.first * u.growth ** rank * discount);
-  return Object.fromEntries(u.pay.map((c) => [c, price]));
+  const r = s.workshop[u.id] ?? 0;
+  if (u.max !== undefined && r >= u.max) return null;
+  return { coins: Math.ceil(u.first * u.growth ** r) };
 }
 
-export function upgradeVisible(s: GameState, u: UpgradeDef): boolean {
-  if (!u.pay.every((c) => s.owned.includes(c))) return false;
-  return Object.entries(u.needs ?? {}).every(([id, n]) => (s.workshop[id] ?? 0) >= n);
-}
+export const upgradeVisible = (s: GameState, u: UpgradeDef) => s.painted >= (u.after ?? 1);
 
 export function buyUpgrade(s: GameState, id: string): boolean {
   const u = UPGRADES.find((x) => x.id === id);
@@ -330,28 +470,5 @@ export function buyUpgrade(s: GameState, id: string): boolean {
   const cost = upgradeCost(s, u);
   if (!cost || !pay(s, cost)) return false;
   s.workshop[id] = (s.workshop[id] ?? 0) + 1;
-  return true;
-}
-
-// Paintings -----------------------------------------------------------------
-
-export function currentPainting(s: GameState) {
-  return PAINTINGS[s.painting] ?? null;
-}
-
-/** 0 to 1: how much of the current painting's pigment the player holds. */
-export function paintingProgress(s: GameState): number {
-  const p = currentPainting(s);
-  if (!p) return 1;
-  const parts = Object.entries(p.cost).map(([c, n]) => Math.min(1, s.pigment[c as Color] / (n ?? 1)));
-  return parts.reduce((a, b) => a + b, 0) / parts.length;
-}
-
-export function paint(s: GameState): boolean {
-  const p = currentPainting(s);
-  if (!p || !pay(s, p.cost)) return false;
-  s.hung.push(p.id);
-  s.renown += p.renown;
-  s.painting++;
   return true;
 }

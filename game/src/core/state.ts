@@ -1,4 +1,5 @@
 import { HUES, type Color } from "./colors";
+import type { Layer } from "./data";
 
 export interface Slot {
   color: Color | null;
@@ -11,22 +12,47 @@ export interface Wheel {
   slots: Slot[];
 }
 
+export interface Composition {
+  bg: string;
+  pieces: string[];
+  title: string;
+}
+
+export interface Easel {
+  comp: Composition;
+  /** Layers in painting order: background first, then each piece */
+  layers: (Layer & { done: number })[];
+  /** Index into TUTORIAL, or -1 for the player's own composition */
+  tutorial: number;
+  price: number;
+}
+
+export interface Hung {
+  title: string;
+  colors: Color[];
+}
+
 export interface GameState {
-  version: 1;
+  version: 2;
   /** Real time of the last update, ms since epoch */
   lastSeen: number;
+  coins: number;
+  /** Paint in the tin */
   pigment: Record<Color, number>;
-  /** Pigment ever earned, used for discovery and stats */
+  /** Tin upgrade level per color */
+  tin: Record<Color, number>;
+  /** Paint ever ground, used for discovery and stats */
   earned: Record<Color, number>;
   /** Colors the player can place in rings */
   owned: Color[];
   wheels: Wheel[];
   workshop: Record<string, number>;
-  /** Index into PAINTINGS of the current goal */
-  painting: number;
-  hung: string[];
-  renown: number;
-  stats: { taps: number; chimes: number; playSeconds: number };
+  easel: Easel | null;
+  /** Last composition the player chose, for the Apprentice to repeat */
+  lastComp: Composition | null;
+  painted: number;
+  hung: Hung[];
+  stats: { taps: number; chimes: number; playSeconds: number; sold: number; coinsEarned: number; spilled: number };
 }
 
 const zero = () => Object.fromEntries(HUES.map((h) => [h, 0])) as Record<Color, number>;
@@ -37,21 +63,24 @@ export function newSlot(color: Color | null = null): Slot {
 
 export function newGame(now = Date.now()): GameState {
   return {
-    version: 1,
+    version: 2,
     lastSeen: now,
+    coins: 0,
     pigment: zero(),
+    tin: zero(),
     earned: zero(),
     owned: ["red"],
     wheels: [{ slots: [newSlot("red")] }],
     workshop: {},
-    painting: 0,
+    easel: null,
+    lastComp: null,
+    painted: 0,
     hung: [],
-    renown: 0,
-    stats: { taps: 0, chimes: 0, playSeconds: 0 },
+    stats: { taps: 0, chimes: 0, playSeconds: 0, sold: 0, coinsEarned: 0, spilled: 0 },
   };
 }
 
-const KEY = "colortime.save.v1";
+const KEY = "colortime.save.v2";
 
 export function save(state: GameState, storage: Storage = localStorage): void {
   try {
@@ -66,10 +95,15 @@ export function load(storage: Storage = localStorage): GameState | null {
     const raw = storage.getItem(KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as GameState;
-    if (s.version !== 1) return null;
-    // Fill in fields added after the save was written
+    if (s.version !== 2) return null;
     const fresh = newGame(s.lastSeen);
-    return { ...fresh, ...s, pigment: { ...fresh.pigment, ...s.pigment }, earned: { ...fresh.earned, ...s.earned } };
+    return {
+      ...fresh, ...s,
+      pigment: { ...fresh.pigment, ...s.pigment },
+      tin: { ...fresh.tin, ...s.tin },
+      earned: { ...fresh.earned, ...s.earned },
+      stats: { ...fresh.stats, ...s.stats },
+    };
   } catch {
     return null;
   }
@@ -78,6 +112,7 @@ export function load(storage: Storage = localStorage): GameState | null {
 export function wipe(storage: Storage = localStorage): void {
   try {
     storage.removeItem(KEY);
+    storage.removeItem("colortime.save.v1");
   } catch {
     /* ignore */
   }
