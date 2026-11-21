@@ -144,5 +144,51 @@
         "count": 2
       }
     ]
+  },
+  "edits": {
+    "main-v2": {
+      "sources": [
+        "https://v3b.fal.media/files/b/0ab362ba/5qfWoxiuV7cWrPIX1Myph_QVzr1h6S.jpg"
+      ],
+      "runs": [
+        {
+          "model": "flux-2-pro",
+          "endpoint": "fal-ai/flux-2-pro/edit",
+          "args": {
+            "image_size": "portrait_16_9",
+            "output_format": "jpeg"
+          },
+          "count": 2
+        }
+      ],
+      "prompt": "Keep this game screen exactly as it is: the layout, the real watercolor-on-paper style, the wooden desk, the window light and all the text. Make only these three fixes. 1) Remove the second envelope with '-32%' on it; the only envelope is the one in the top-right corner with a red 2. 2) Keep only one round x2 button, the one on the left beside the wheel; remove the other x2 button. 3) On the small taped heron sheet, paint the bottom third in watercolor: blue-grey water, green reeds and the heron's legs and lower body in grey, ending in a soft wet edge. The top two thirds stay a pencil sketch. Keep a small handwritten '32%' beside the sheet."
+    },
+    "studio-wall": {
+      "sources": [
+        "https://v3b.fal.media/files/b/0ab362ba/5qfWoxiuV7cWrPIX1Myph_QVzr1h6S.jpg"
+      ],
+      "runs": [
+        {
+          "model": "nano-banana-pro",
+          "endpoint": "fal-ai/nano-banana-pro/edit",
+          "args": {
+            "aspect_ratio": "9:16",
+            "output_format": "jpeg",
+            "resolution": "2K"
+          },
+          "count": 2
+        },
+        {
+          "model": "flux-2-pro",
+          "endpoint": "fal-ai/flux-2-pro/edit",
+          "args": {
+            "image_size": "portrait_16_9",
+            "output_format": "jpeg"
+          },
+          "count": 2
+        }
+      ],
+      "prompt": "Use the attached screen as the exact style reference: real watercolor and gouache on thick textured paper on a wooden desk in warm window light, with the same header, round buttons, paper tags, lettering and bottom bar. Draw a different screen of the same game: the Studio. Header as in the reference: the 'Studio level 7' badge, the paint tin with counters 13.9K, 3.8K and 18.6K, and the envelope with a red 2. A handwritten title 'Studio'. Below it, a torn paper banner reading 'While you were away: +48.2K' with two small buttons, 'Collect' and 'Double'. The main area is a large sheet of paper on the desk holding a grid of six small painted wheels, two across and three down. Each is a smaller version of the reference wheel with its own colors: warm reds and oranges; greens and blues; purples and violets; mostly yellows; teal and blue; and the sixth is an empty dotted pencil outline labelled 'Build wheel' with a small cost of 250K. Under each painted wheel, a small paper label: 'Wheel 1' to 'Wheel 5', each with a rate such as '312/s'. Wheel 1 is highlighted with a pencil circle. In the top-right corner of the desk, the small heron sheet from the reference stands on a tiny wooden easel, its bottom third painted and the rest a pencil sketch. Bottom bar as in the reference, Studio, Research, Easel, Gallery, Shop, with Studio highlighted. A flat, readable portrait phone screen filling the frame. No phone frame, no hands."
+    }
   }
 }

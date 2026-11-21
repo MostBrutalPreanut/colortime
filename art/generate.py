@@ -225,11 +225,11 @@ def mockups(args):
     print(f"sheet: {out / 'sheet.jpg'}")
 
 
-def blend(args):
-    B = CONFIG["blend"]
-    urls = list(B["sources"].values())
+def blend(args, B=None, kind="blend"):
+    B = B or CONFIG["blend"]
+    urls = list(B["sources"].values()) if isinstance(B["sources"], dict) else B["sources"]
     runs = [r for r in B["runs"] if not args.models or r["model"] in args.models.split(",")]
-    out = run_dir("blend")
+    out = run_dir(kind)
     jobs = [(r, i) for r in runs for i in range(r["count"])]
     print(f"{len(jobs)} images from {len(urls)} references -> {out}")
     cells, manifest = {}, []
@@ -247,7 +247,7 @@ def blend(args):
             r, i = futs[f]
             try:
                 url, img = f.result()
-                img.convert("RGB").save(out / f"blend_{r['model']}_{i + 1}.jpg", quality=92)
+                img.convert("RGB").save(out / f"{kind}_{r['model']}_{i + 1}.jpg", quality=92)
                 cells[(f"take {i + 1}", r["model"])] = img
                 manifest.append({"model": r["model"], "take": i + 1, "url": url})
                 print(f"  ok   {r['model']} take {i + 1}")
@@ -260,12 +260,20 @@ def blend(args):
     print(f"sheet: {out / 'sheet.jpg'}")
 
 
+def edit(args):
+    jobs = CONFIG["edits"]
+    for job in (args.job.split(",") if args.job else jobs):
+        print(f"== {job}")
+        blend(args, jobs[job], job)
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["batch", "layers", "mockups", "blend"])
+    ap.add_argument("mode", choices=["batch", "layers", "mockups", "blend", "edit"])
     ap.add_argument("--styles")
     ap.add_argument("--subjects")
     ap.add_argument("--models")
     ap.add_argument("--seed", type=int)
+    ap.add_argument("--job", help="edit mode: comma-separated job ids from prompts.json")
     a = ap.parse_args()
-    {"batch": batch, "layers": layers, "mockups": mockups, "blend": blend}[a.mode](a)
+    {"batch": batch, "layers": layers, "mockups": mockups, "blend": blend, "edit": edit}[a.mode](a)
