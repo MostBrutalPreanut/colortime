@@ -1,145 +1,154 @@
 import { describe, expect, it } from "vitest";
-import { seamBetween } from "../src/core/colors";
+import { COLORS } from "../src/core/data";
 import {
-  buyLevels, buyTube, buyUpgrade, catchUp, currentLayer, easelDone, hang, levelCost, openSlot, place, ringStats,
-  seams, sell, startPainting, tap, tick, tinCap, upgradeTin,
+  accept, buyBoost, buyLevels, buyStudio, catchUp, easelDone, fillOffers, hang, hireApprentice, missingParent, sell,
+  tapAll, tapRow, tick, tinCap, turnTime, unlockRow, upgradeTin,
 } from "../src/core/game";
 import { newGame, type GameState } from "../src/core/state";
 
-const fund = (s: GameState, coins = 1e12) => { s.coins = coins; return s; };
+const rich = (coins = 1e12) => { const s = newGame(0); s.coins = coins; return s; };
+const skipLessons = (s: GameState) => { s.painted = 3; s.offers = []; return s; };
 
-describe("seams", () => {
-  it("blends two primaries into the secondary between them", () => {
-    expect(seamBetween("red", "yellow")).toEqual({ kind: "blend", color: "orange" });
-    expect(seamBetween("yellow", "blue")).toEqual({ kind: "blend", color: "green" });
-    expect(seamBetween("blue", "red")).toEqual({ kind: "blend", color: "violet" });
-  });
-  it("blends a primary and its neighbouring secondary into a paint color", () => {
-    expect(seamBetween("blue", "green")).toEqual({ kind: "blend", color: "teal" });
-    expect(seamBetween("red", "orange")).toEqual({ kind: "blend", color: "vermilion" });
-  });
-  it("makes opposites contrast and leaves other pairs alone", () => {
-    expect(seamBetween("red", "green").kind).toBe("contrast");
-    expect(seamBetween("orange", "green").kind).toBe("none");
-  });
-});
-
-describe("rings and tin", () => {
-  it("grinds one red per 2-second turn, triple on the 12th", () => {
+describe("rows", () => {
+  it("only delivers paint when a turn completes", () => {
     const s = newGame(0);
-    s.easel = null;
-    s.painted = 99; // no tutorial painting drawing from the tin
-    tick(s, 22);
-    expect(s.pigment.red).toBe(11);
-    tick(s, 2);
-    expect(s.pigment.red).toBe(14);
-  });
-
-  it("spills paint past the tin cap, and a bigger tin holds more", () => {
-    const s = fund(newGame(0));
-    s.painted = 99;
-    tick(s, 1000);
-    expect(s.pigment.red).toBe(100);
-    expect(s.stats.spilled).toBeGreaterThan(0);
-    expect(upgradeTin(s, "red")).toBe(true);
-    expect(tinCap(s, "red")).toBe(200);
-  });
-
-  it("advances every ring by a second on a tap", () => {
-    const s = newGame(0);
-    s.painted = 99;
-    tap(s, 0);
-    tap(s, 0);
+    expect(tapRow(s, "red")).toBe(true);
+    tick(s, 1.4);
+    expect(s.pigment.red).toBe(0);
+    tick(s, 0.2);
     expect(s.pigment.red).toBe(1);
   });
 
-  it("prices ring levels in coins and doubles speed at level 25", () => {
-    const s = fund(newGame(0));
-    expect(Object.keys(levelCost(s, 0, 0)!)).toEqual(["coins"]);
-    const before = ringStats(s, 0, 0)!.turn;
-    buyLevels(s, 0, 0, 24);
-    expect(ringStats(s, 0, 0)!.turn).toBeCloseTo(before / 2);
+  it("does nothing without a tap until the apprentice is hired", () => {
+    const s = rich();
+    tick(s, 60);
+    expect(s.pigment.red).toBe(0);
+    hireApprentice(s, "red");
+    tick(s, 15);
+    expect(s.pigment.red).toBe(10);
+  });
+
+  it("can't start a turn twice", () => {
+    const s = newGame(0);
+    expect(tapRow(s, "red")).toBe(true);
+    expect(tapRow(s, "red")).toBe(false);
+  });
+
+  it("makes every higher tier slower", () => {
+    const s = rich();
+    const t = (c: string) => turnTime(s, c as never);
+    expect(t("red")).toBeLessThan(t("orange"));
+    expect(t("orange")).toBeLessThan(t("vermilion"));
+  });
+
+  it("halves the turn at level 25", () => {
+    const s = rich();
+    const before = turnTime(s, "red");
+    s.buy = 10;
+    buyLevels(s, "red"); buyLevels(s, "red"); buyLevels(s, "red"); // 10, 20, 30
+    expect(s.rows.red.level).toBe(30);
+    expect(turnTime(s, "red")).toBeCloseTo(before / 2);
+  });
+
+  it("spills paint past the tin cap", () => {
+    const s = rich();
+    hireApprentice(s, "red");
+    tick(s, 600);
+    expect(s.pigment.red).toBe(tinCap(s, "red"));
+    expect(s.stats.spilled).toBeGreaterThan(0);
+    upgradeTin(s, "red");
+    expect(tinCap(s, "red")).toBe(2 * 50);
   });
 });
 
-describe("easel", () => {
-  it("paints the first tutorial apple from red in the tin, then sells it and gives a yellow tube", () => {
+describe("mixing", () => {
+  it("needs both parents unlocked, takes them at the start of the turn, and waits without them", () => {
+    const s = rich();
+    expect(unlockRow(s, "orange")).toBe(false);
+    unlockRow(s, "yellow");
+    expect(unlockRow(s, "orange")).toBe(true);
+    expect(missingParent(s, "orange")).toBe("red");
+    expect(tapRow(s, "orange")).toBe(false);
+    s.pigment.red = 5; s.pigment.yellow = 5;
+    expect(tapRow(s, "orange")).toBe(true);
+    expect(s.pigment.red).toBe(4);
+    expect(s.pigment.yellow).toBe(4);
+    tick(s, 8);
+    expect(s.pigment.orange).toBe(1);
+  });
+
+  it("boosts double output without taking more parent paint", () => {
+    const s = rich();
+    unlockRow(s, "yellow"); unlockRow(s, "orange");
+    buyBoost(s, "orange");
+    s.pigment.red = 5; s.pigment.yellow = 5;
+    tapRow(s, "orange");
+    tick(s, 8);
+    expect(s.pigment.orange).toBe(2);
+    expect(s.pigment.red).toBe(4);
+  });
+
+  it("keeps mixing while parents last when offline-long spans run in bulk", () => {
+    const s = rich();
+    unlockRow(s, "yellow"); unlockRow(s, "orange");
+    for (const c of ["red", "yellow", "orange"] as const) { hireApprentice(s, c); upgradeTin(s, c); }
+    tick(s, 3600);
+    expect(s.pigment.orange).toBeGreaterThan(50);
+  });
+});
+
+describe("commissions", () => {
+  it("starts with a fixed apple lesson that red alone can paint", () => {
     const s = newGame(0);
-    tick(s, 0.1);
-    expect(s.easel?.comp.title).toBe("First Apple");
-    expect(currentLayer(s.easel)?.color).toBe("red");
-    tick(s, 60);
+    fillOffers(s);
+    expect(s.offers).toHaveLength(1);
+    expect(s.offers[0].title).toBe("Apple");
+    accept(s, s.offers[0].id);
+    for (let i = 0; i < 8; i++) { tapAll(s); tick(s, 1.5); }
     expect(easelDone(s.easel)).toBe(true);
-    const price = sell(s);
-    expect(price).toBe(25);
-    expect(s.coins).toBe(25);
-    expect(s.owned).toContain("yellow");
-    expect(s.easel?.comp.title).toBe("Lemon Light");
+    expect(sell(s)).toBeGreaterThan(0);
+    expect(s.offers[0].title).toBe("Lemon");
   });
 
-  it("waits on a missing color instead of skipping it", () => {
-    const s = newGame(0);
-    s.painted = 3;
-    s.owned.push("yellow");
-    expect(startPainting(s, { bg: "sky", pieces: ["apple"], title: "t" })).toBe(true);
-    tick(s, 30);
-    expect(currentLayer(s.easel)?.color).toBe("blue");
-    expect(s.easel!.layers[1].done).toBe(0);
+  it("offers three commissions after the lessons, using only colors you have", () => {
+    const s = skipLessons(rich());
+    unlockRow(s, "yellow"); unlockRow(s, "blue");
+    fillOffers(s);
+    expect(s.offers).toHaveLength(3);
+    for (const o of s.offers) for (const l of o.layers) expect(s.rows[l.color].unlocked).toBe(true);
   });
 
-  it("hangs a painting, which boosts the colors in it", () => {
-    const s = newGame(0);
-    const before = ringStats(s, 0, 0)!.pay;
-    tick(s, 60);
+  it("hangs a painting, which speeds up its colors", () => {
+    const s = rich();
+    fillOffers(s);
+    accept(s, s.offers[0].id);
+    s.pigment.red = 50;
+    tick(s, 0.1);
+    const before = turnTime(s, "red");
     expect(hang(s)).toBe(true);
-    expect(ringStats(s, 0, 0)!.pay).toBeCloseTo(before * 1.1);
+    expect(turnTime(s, "red")).toBeCloseTo(before / 1.1);
   });
 
-  it("the Apprentice repeats and sells the last composition", () => {
-    const s = fund(newGame(0), 0);
-    s.painted = 3;
-    s.workshop.apprentice = 1;
-    startPainting(s, { bg: "paper", pieces: ["apple"], title: "Apples" });
+  it("the Art Agent sells and takes new work by itself", () => {
+    const s = skipLessons(rich());
+    s.painted = 6;
+    buyStudio(s, "agent");
+    hireApprentice(s, "red");
+    upgradeTin(s, "red"); upgradeTin(s, "red");
     tick(s, 600);
     expect(s.stats.sold).toBeGreaterThan(3);
-    expect(s.coins).toBeGreaterThan(0);
-  });
-});
-
-describe("colors and rings", () => {
-  it("buys tubes and rings with coins, and red beside yellow discovers orange", () => {
-    const s = fund(newGame(0));
-    s.painted = 99;
-    expect(buyTube(s, "yellow")).toBe(true);
-    expect(openSlot(s, 0)).toBe(true);
-    place(s, 0, 1, "yellow");
-    expect(seams(s, 0).map((x) => x.color)).toEqual(["orange"]);
-    tick(s, 3600);
-    expect(s.owned).toContain("orange");
-  });
-
-  it("Rim Runner speeds up only the outer ring", () => {
-    const s = fund(newGame(0));
-    s.painted = 5;
-    buyTube(s, "yellow");
-    openSlot(s, 0);
-    place(s, 0, 1, "yellow");
-    const rim = ringStats(s, 0, 0)!.turn;
-    const inner = ringStats(s, 0, 1)!.turn;
-    expect(buyUpgrade(s, "rim-runner")).toBe(true);
-    expect(ringStats(s, 0, 0)!.turn).toBeCloseTo(rim / 1.1);
-    expect(ringStats(s, 0, 1)!.turn).toBeCloseTo(inner);
   });
 });
 
 describe("offline", () => {
-  it("runs the wheels and easel at half speed, capped at two hours", () => {
-    const s = newGame(0);
-    const res = catchUp(s, 10 * 3600 * 1000);
-    expect(res.seconds).toBe(7200);
-    expect(easelDone(s.easel)).toBe(true); // the first apple finished while away
+  it("runs hired rows at half speed for up to two hours", () => {
+    const s = rich();
+    hireApprentice(s, "red");
+    const r = catchUp(s, 10 * 3600 * 1000);
+    expect(r.seconds).toBe(7200);
+    expect(s.pigment.red).toBe(tinCap(s, "red"));
   });
-  it("ignores short gaps", () => {
-    expect(catchUp(newGame(0), 10_000).seconds).toBe(0);
+  it("has twelve colors in three tiers", () => {
+    expect(COLORS).toHaveLength(12);
   });
 });

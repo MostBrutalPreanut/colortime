@@ -1,84 +1,75 @@
 // Every tunable number lives here. Starting points for playtesting.
 //
-// The economy is a painter's studio:
-//   wheels grind paint -> the tin stores it (capped) -> the easel paints the
-//   picture you chose, layer by layer, using paint from the tin -> you sell
-//   the painting for money, or hang it for a bonus -> money buys tools.
-// Paint is never spent on tools. Money is never turned into paint.
+// The studio as a production chain (docs/economy.md):
+//   each color is a fixed row that grinds paint in turns -> mixed colors take
+//   their parent colors from the tin at the start of each turn -> paint lands
+//   in the tin only when a turn completes -> the easel takes paint from the tin
+//   for the commission you accepted -> sell it for coins or hang it -> coins
+//   buy levels, rows, apprentices, wells and boosts.
 
 import type { Color } from "./colors";
 
-/** A price. Keys are paint colors or "coins". */
-export type Cost = Partial<Record<Color | "coins", number>>;
+export type Tier = 1 | 2 | 3;
 
-export interface SlotDef {
-  /** Seconds per full turn at level 1 with no upgrades */
+export interface ColorDef {
+  color: Color;
+  tier: Tier;
+  /** Parent colors taken from the tin at the start of every turn, per level */
+  recipe: Color[];
+  /** Seconds per turn before milestones */
   turn: number;
-  /** Paint ground per turn, per level */
-  yieldPerLevel: number;
-  /** Coins for the next level: levelBase * growth ^ level */
+  /** Paint made per turn, per level */
+  yield: number;
+  /** Coins to unlock the row */
+  unlock: number;
+  /** Coins for the next level: levelBase * growth ^ (level - 1) */
   levelBase: number;
   growth: number;
-  /** Coins to open this ring; ring 1 is open from the start */
-  unlock: number;
+  /** Coins to hire this row's apprentice, who keeps it turning */
+  apprentice: number;
+  /** One-time boosts: each doubles this row's output */
+  boosts: number[];
 }
 
-export const SLOTS: SlotDef[] = [
-  { turn: 2, yieldPerLevel: 1, levelBase: 3, growth: 1.07, unlock: 0 },
-  { turn: 8, yieldPerLevel: 8, levelBase: 40, growth: 1.08, unlock: 15 },
-  { turn: 40, yieldPerLevel: 80, levelBase: 700, growth: 1.09, unlock: 300 },
-  { turn: 240, yieldPerLevel: 960, levelBase: 12_000, growth: 1.11, unlock: 40_000 },
-  { turn: 1_800, yieldPerLevel: 14_400, levelBase: 220_000, growth: 1.13, unlock: 2_000_000 },
-  { turn: 14_400, yieldPerLevel: 230_400, levelBase: 4_000_000, growth: 1.15, unlock: 80_000_000 },
+export const COLORS: ColorDef[] = [
+  { color: "red", tier: 1, recipe: [], turn: 1.5, yield: 1, unlock: 0, levelBase: 4, growth: 1.07, apprentice: 60, boosts: [500, 20_000, 1e6] },
+  { color: "yellow", tier: 1, recipe: [], turn: 3, yield: 1, unlock: 25, levelBase: 20, growth: 1.08, apprentice: 300, boosts: [2_000, 60_000, 3e6] },
+  { color: "blue", tier: 1, recipe: [], turn: 4.5, yield: 1, unlock: 200, levelBase: 120, growth: 1.09, apprentice: 1_500, boosts: [8_000, 250_000, 1e7] },
+  { color: "orange", tier: 2, recipe: ["red", "yellow"], turn: 8, yield: 1, unlock: 800, levelBase: 500, growth: 1.1, apprentice: 6_000, boosts: [40_000, 1.2e6, 5e7] },
+  { color: "green", tier: 2, recipe: ["yellow", "blue"], turn: 10, yield: 1, unlock: 2_500, levelBase: 1_500, growth: 1.1, apprentice: 15_000, boosts: [120_000, 4e6, 1.5e8] },
+  { color: "violet", tier: 2, recipe: ["blue", "red"], turn: 12, yield: 1, unlock: 7_000, levelBase: 4_000, growth: 1.1, apprentice: 40_000, boosts: [350_000, 1.2e7, 4e8] },
+  { color: "vermilion", tier: 3, recipe: ["red", "orange"], turn: 18, yield: 1, unlock: 25_000, levelBase: 15_000, growth: 1.12, apprentice: 150_000, boosts: [1.5e6, 5e7, 2e9] },
+  { color: "amber", tier: 3, recipe: ["orange", "yellow"], turn: 21, yield: 1, unlock: 60_000, levelBase: 35_000, growth: 1.12, apprentice: 350_000, boosts: [3.5e6, 1.2e8, 5e9] },
+  { color: "chartreuse", tier: 3, recipe: ["yellow", "green"], turn: 24, yield: 1, unlock: 150_000, levelBase: 90_000, growth: 1.12, apprentice: 900_000, boosts: [9e6, 3e8, 1.2e10] },
+  { color: "teal", tier: 3, recipe: ["green", "blue"], turn: 27, yield: 1, unlock: 400_000, levelBase: 240_000, growth: 1.12, apprentice: 2.4e6, boosts: [2.4e7, 8e8, 3e10] },
+  { color: "indigo", tier: 3, recipe: ["blue", "violet"], turn: 30, yield: 1, unlock: 1e6, levelBase: 600_000, growth: 1.12, apprentice: 6e6, boosts: [6e7, 2e9, 8e10] },
+  { color: "magenta", tier: 3, recipe: ["violet", "red"], turn: 33, yield: 1, unlock: 2.5e6, levelBase: 1.5e6, growth: 1.12, apprentice: 1.5e7, boosts: [1.5e8, 5e9, 2e11] },
 ];
 
-/** Later wheels cost this much more per wheel for rings and levels. */
-export const WHEEL_SCALE = 10;
-export const WHEELS: { unlock: number }[] = [{ unlock: 0 }, { unlock: 12_000 }, { unlock: 1_500_000 }, { unlock: 150_000_000 }];
+export const colorDef = (c: Color) => COLORS.find((d) => d.color === c)!;
 
-/** Primaries arrive as tubes: from commissions, or bought at the art shop. */
-export const TUBES: Partial<Record<Color, number>> = { yellow: 40, blue: 250 };
+/** Each milestone halves a row's turn time. */
+export const MILESTONES = [25, 50, 100, 200, 300, 400, 500];
 
-/** Blended paint needed before a secondary can be placed in a ring. */
-export const DISCOVER_AT = 25;
-
-/** A seam trickles this share of the slower neighbour's paint per second. */
-export const BLEND_SHARE = 0.2;
-
-export const CHIME_EVERY = 12;
-export const CHIME_MULT = 3;
-export const CONTRAST_CHIME_MULT = 6;
-export const MILESTONES = [25, 50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 1000];
-export const TAP_SECONDS = 1;
 export const OFFLINE = { capHours: 2, efficiency: 0.5 };
 
 // ---------------------------------------------------------------------------
-// Tin: every color has its own capped well. Paint past the cap is lost.
+// Tin: one capped well per color. Paint that doesn't fit is lost.
 
-export const TIN = {
-  /** Capacity at tin level 0 */
-  base: 100,
-  /** Each level multiplies capacity */
-  perLevel: 2,
-  /** Coins for the next level: first * growth ^ level */
-  first: 25,
-  growth: 2.6,
-};
+export const TIN = { base: 50, perLevel: 2, first: 15, growth: 2.4 };
 
 // ---------------------------------------------------------------------------
-// Easel and paintings
+// Commissions
 
-/** Paint per second the easel pours into the current layer. */
-export const BRUSH_RATE = 25;
-/** What one unit of paint adds to a painting's price, by color job. */
-export const PAINT_VALUE = { grow: 1, research: 3, paint: 8 };
-/** Richer paintings sell for more: each extra color and each piece adds to the price. */
+/** Coins per unit of paint in a painting, by tier. */
+export const PAINT_VALUE: Record<Tier, number> = { 1: 3, 2: 15, 3: 60 };
+/** Richer paintings pay more: per extra color and per piece. */
 export const VARIETY = { perExtraColor: 0.3, perPiece: 0.25 };
-/** Bigger Canvas: each level multiplies paint needed and price. */
-export const CANVAS = { paint: 3, price: 4 };
-/** Paintings that can hang at once; each boosts the colors in it. */
+/** Paintings that can hang at once; each makes its colors' rows 10% faster. */
 export const HOOKS = 3;
 export const HANG_BONUS = 0.1;
+/** Commissions on offer at once */
+export const OFFERS = 3;
 
 export interface Layer {
   color: Color;
@@ -92,88 +83,62 @@ export interface PartDef {
 }
 
 export const BACKGROUNDS: PartDef[] = [
-  { id: "paper", name: "Bare paper", layers: [] },
-  { id: "warm", name: "Warm wash", layers: [{ color: "yellow", amount: 30 }] },
-  { id: "sky", name: "Blue sky", layers: [{ color: "blue", amount: 40 }] },
-  { id: "dawn", name: "Dawn", layers: [{ color: "orange", amount: 30 }, { color: "yellow", amount: 20 }] },
-  { id: "meadow", name: "Meadow", layers: [{ color: "green", amount: 40 }, { color: "blue", amount: 20 }] },
-  { id: "dusk", name: "Dusk", layers: [{ color: "violet", amount: 30 }, { color: "orange", amount: 20 }] },
-  { id: "sea", name: "Open sea", layers: [{ color: "teal", amount: 30 }, { color: "blue", amount: 40 }] },
+  { id: "paper", name: "", layers: [] },
+  { id: "warm", name: "warm wash", layers: [{ color: "yellow", amount: 10 }] },
+  { id: "sky", name: "blue sky", layers: [{ color: "blue", amount: 12 }] },
+  { id: "dawn", name: "dawn", layers: [{ color: "orange", amount: 6 }, { color: "yellow", amount: 6 }] },
+  { id: "meadow", name: "meadow", layers: [{ color: "green", amount: 8 }, { color: "blue", amount: 6 }] },
+  { id: "dusk", name: "dusk", layers: [{ color: "violet", amount: 6 }, { color: "orange", amount: 4 }] },
+  { id: "sea", name: "open sea", layers: [{ color: "teal", amount: 4 }, { color: "blue", amount: 10 }] },
+  { id: "field", name: "wheat field", layers: [{ color: "amber", amount: 4 }, { color: "chartreuse", amount: 3 }] },
 ];
 
 export const PIECES: PartDef[] = [
-  { id: "apple", name: "Apple", layers: [{ color: "red", amount: 20 }] },
-  { id: "lemon", name: "Lemon", layers: [{ color: "yellow", amount: 20 }] },
-  { id: "sun", name: "Sun", layers: [{ color: "yellow", amount: 25 }, { color: "red", amount: 5 }] },
-  { id: "kite", name: "Kite", layers: [{ color: "red", amount: 15 }, { color: "blue", amount: 10 }] },
-  { id: "pumpkin", name: "Pumpkin", layers: [{ color: "orange", amount: 30 }, { color: "green", amount: 5 }] },
-  { id: "tree", name: "Tree", layers: [{ color: "green", amount: 25 }, { color: "chartreuse", amount: 10 }] },
-  { id: "house", name: "Cottage", layers: [{ color: "vermilion", amount: 15 }, { color: "yellow", amount: 15 }] },
-  { id: "boat", name: "Rowboat", layers: [{ color: "vermilion", amount: 12 }, { color: "blue", amount: 10 }] },
-  { id: "heron", name: "Heron", layers: [{ color: "teal", amount: 15 }, { color: "blue", amount: 10 }] },
-  { id: "plum", name: "Plums", layers: [{ color: "violet", amount: 20 }, { color: "magenta", amount: 10 }] },
-  { id: "field", name: "Wheat", layers: [{ color: "amber", amount: 25 }] },
-  { id: "moon", name: "Moon", layers: [{ color: "indigo", amount: 15 }, { color: "yellow", amount: 10 }] },
+  { id: "apple", name: "Apple", layers: [{ color: "red", amount: 8 }] },
+  { id: "lemon", name: "Lemon", layers: [{ color: "yellow", amount: 8 }] },
+  { id: "kite", name: "Kite", layers: [{ color: "red", amount: 6 }, { color: "blue", amount: 4 }] },
+  { id: "sun", name: "Sun", layers: [{ color: "yellow", amount: 10 }, { color: "red", amount: 3 }] },
+  { id: "pumpkin", name: "Pumpkin", layers: [{ color: "orange", amount: 6 }, { color: "green", amount: 2 }] },
+  { id: "tree", name: "Tree", layers: [{ color: "green", amount: 8 }] },
+  { id: "plums", name: "Plums", layers: [{ color: "violet", amount: 6 }] },
+  { id: "house", name: "Cottage", layers: [{ color: "vermilion", amount: 3 }, { color: "yellow", amount: 6 }] },
+  { id: "boat", name: "Rowboat", layers: [{ color: "vermilion", amount: 3 }, { color: "blue", amount: 4 }] },
+  { id: "heron", name: "Heron", layers: [{ color: "teal", amount: 3 }, { color: "blue", amount: 4 }] },
+  { id: "moon", name: "Moon", layers: [{ color: "indigo", amount: 3 }, { color: "yellow", amount: 4 }] },
+  { id: "rose", name: "Roses", layers: [{ color: "magenta", amount: 3 }, { color: "green", amount: 3 }] },
 ];
 
-/** Pieces allowed on one painting. A third slot can come from the Gallery later. */
-export const MAX_PIECES = 2;
-
-/** The first paintings are set, to teach the loop. Each pays a new tube. */
-export const TUTORIAL: { bg: string; pieces: string[]; reward?: Color; title: string }[] = [
-  { bg: "paper", pieces: ["apple"], reward: "yellow", title: "First Apple" },
-  { bg: "warm", pieces: ["lemon"], reward: "blue", title: "Lemon Light" },
-  { bg: "sky", pieces: ["kite"], title: "Kite Day" },
+/** The first commissions are fixed, to teach the loop. */
+export const TUTORIAL: { bg: string; pieces: string[] }[] = [
+  { bg: "paper", pieces: ["apple"] },
+  { bg: "paper", pieces: ["lemon"] },
+  { bg: "warm", pieces: ["apple"] },
 ];
+
+/** Commissions grow with how many paintings you have made: amounts × (1 + this × painted). */
+export const COMMISSION_GROWTH = 0.12;
 
 // ---------------------------------------------------------------------------
-// Workshop: tools bought with coins (docs/upgrades.md, reworked for coins)
+// Studio upgrades: one-time and repeatable, bought with coins
 
-export type UpgradeEffect =
-  | { kind: "colorYield"; color: Color; per: number }
-  | { kind: "allYield"; per: number }
-  | { kind: "chime"; per: number }
-  | { kind: "slotSpeed"; slot: "outer"; per: number }
-  | { kind: "colorSpeed"; color: Color; per: number }
-  | { kind: "tap"; per: number }
-  | { kind: "headStart"; per: number }
-  | { kind: "levelDiscount"; per: number }
-  | { kind: "offlineCap"; perMinutes: number }
-  | { kind: "blendShare"; per: number }
-  | { kind: "brush"; per: number }
-  | { kind: "canvas"; per: 1 }
-  | { kind: "price"; per: number }
-  | { kind: "apprentice"; per: 1 };
+export type StudioEffect = "price" | "speed" | "offline" | "agent" | "canvas";
 
-export interface UpgradeDef {
+export interface StudioUpgrade {
   id: string;
   name: string;
   text: string;
-  group: "Wheels" | "Easel";
+  effect: StudioEffect;
   first: number;
   growth: number;
   max?: number;
-  effect: UpgradeEffect;
   /** Shown once the player has made this many paintings */
-  after?: number;
+  after: number;
 }
 
-export const UPGRADES: UpgradeDef[] = [
-  { id: "wide-brush", name: "Wide Brush", text: "Easel paints 50% faster", group: "Easel", first: 30, growth: 1.9, effect: { kind: "brush", per: 0.5 } },
-  { id: "good-frames", name: "Good Frames", text: "Paintings sell for 15% more", group: "Easel", first: 80, growth: 2, effect: { kind: "price", per: 0.15 }, after: 2 },
-  { id: "apprentice", name: "Apprentice", text: "Repeats your last painting and sells it for you", group: "Easel", first: 600, growth: 1, max: 1, effect: { kind: "apprentice", per: 1 }, after: 3 },
-  { id: "bigger-canvas", name: "Bigger Canvas", text: "Paintings take 3× the paint and sell for 4×", group: "Easel", first: 2_500, growth: 40, max: 12, effect: { kind: "canvas", per: 1 }, after: 4 },
-  { id: "rim-runner", name: "Rim Runner", text: "Outer ring turns 10% faster", group: "Wheels", first: 20, growth: 2, effect: { kind: "slotSpeed", slot: "outer", per: 0.1 } },
-  { id: "heavy-stroke", name: "Heavy Stroke", text: "Red rings grind 25% more", group: "Wheels", first: 60, growth: 1.6, effect: { kind: "colorYield", color: "red", per: 0.25 } },
-  { id: "quick-yellow", name: "Quick Yellow", text: "Yellow rings turn 10% faster", group: "Wheels", first: 150, growth: 1.8, effect: { kind: "colorSpeed", color: "yellow", per: 0.1 } },
-  { id: "thin-coats", name: "Thin Coats", text: "Ring levels cost 3% less", group: "Wheels", first: 200, growth: 2.4, max: 20, effect: { kind: "levelDiscount", per: 0.03 } },
-  { id: "light-touch", name: "Light Touch", text: "A tap turns rings 0.5 s more", group: "Wheels", first: 400, growth: 2.5, max: 10, effect: { kind: "tap", per: 0.5 } },
-  { id: "thick-paint", name: "Thick Paint", text: "Every ring grinds 10% more", group: "Wheels", first: 1_000, growth: 2.2, effect: { kind: "allYield", per: 0.1 } },
-  { id: "wet-on-wet", name: "Wet on Wet", text: "Seams blend 2% more", group: "Wheels", first: 1_500, growth: 2.5, max: 10, effect: { kind: "blendShare", per: 0.02 } },
-  { id: "deep-wells", name: "Deep Wells", text: "Offline time +15 minutes", group: "Wheels", first: 500, growth: 2, max: 24, effect: { kind: "offlineCap", perMinutes: 15 } },
-  { id: "bold-chime", name: "Bold Chime", text: "Chimes pay +0.5×", group: "Wheels", first: 3_000, growth: 3, max: 10, effect: { kind: "chime", per: 0.5 } },
-  { id: "head-start", name: "Head Start", text: "Every turn begins 2% done", group: "Wheels", first: 6_000, growth: 3, max: 15, effect: { kind: "headStart", per: 0.02 } },
+export const STUDIO: StudioUpgrade[] = [
+  { id: "frames", name: "Good Frames", text: "Paintings sell for 20% more", effect: "price", first: 150, growth: 2.2, after: 3 },
+  { id: "oil", name: "Oiled Wheels", text: "Every row turns 10% faster", effect: "speed", first: 1_000, growth: 2.5, after: 4 },
+  { id: "agent", name: "Art Agent", text: "Sells finished paintings and takes the best commission for you", effect: "agent", first: 5_000, growth: 1, max: 1, after: 6 },
+  { id: "canvas", name: "Bigger Canvas", text: "Commissions need 3× the paint and pay 4×", effect: "canvas", first: 20_000, growth: 30, max: 10, after: 8 },
+  { id: "wells", name: "Deep Wells", text: "Offline time +30 minutes", effect: "offline", first: 2_000, growth: 2, max: 20, after: 5 },
 ];
-
-/** Every tenth rank doubles that upgrade's total bonus. */
-export const LANDMARK_EVERY = 10;

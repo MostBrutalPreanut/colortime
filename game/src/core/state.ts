@@ -1,92 +1,72 @@
 import { HUES, type Color } from "./colors";
 import type { Layer } from "./data";
 
-export interface Slot {
-  color: Color | null;
+export interface Row {
+  unlocked: boolean;
   level: number;
-  /** Turns completed so far, with the fraction of the current turn */
-  turns: number;
+  /** Seconds into the current turn, or -1 when idle */
+  running: number;
+  /** Paint the current turn will deliver (fixed when the turn starts) */
+  batch: number;
+  apprentice: boolean;
+  boosts: number;
+  tin: number;
 }
 
-export interface Wheel {
-  slots: Slot[];
-}
-
-export interface Composition {
-  bg: string;
-  pieces: string[];
+export interface Commission {
+  id: number;
   title: string;
-}
-
-export interface Easel {
-  comp: Composition;
-  /** Layers in painting order: background first, then each piece */
   layers: (Layer & { done: number })[];
-  /** Index into TUTORIAL, or -1 for the player's own composition */
-  tutorial: number;
+  pieces: number;
   price: number;
 }
 
-export interface Hung {
-  title: string;
-  colors: Color[];
-}
-
 export interface GameState {
-  version: 2;
-  /** Real time of the last update, ms since epoch */
+  version: 3;
   lastSeen: number;
   coins: number;
-  /** Paint in the tin */
   pigment: Record<Color, number>;
-  /** Tin upgrade level per color */
-  tin: Record<Color, number>;
-  /** Paint ever ground, used for discovery and stats */
-  earned: Record<Color, number>;
-  /** Colors the player can place in rings */
-  owned: Color[];
-  wheels: Wheel[];
-  workshop: Record<string, number>;
-  easel: Easel | null;
-  /** Last composition the player chose, for the Apprentice to repeat */
-  lastComp: Composition | null;
+  rows: Record<Color, Row>;
+  offers: Commission[];
+  easel: Commission | null;
+  nextId: number;
   painted: number;
-  hung: Hung[];
-  stats: { taps: number; chimes: number; playSeconds: number; sold: number; coinsEarned: number; spilled: number };
+  hung: { title: string; colors: Color[] }[];
+  studio: Record<string, number>;
+  /** Buy amount for row levels */
+  buy: 1 | 10 | 100 | "max";
+  stats: { taps: number; playSeconds: number; sold: number; coinsEarned: number; spilled: number };
 }
 
-const zero = () => Object.fromEntries(HUES.map((h) => [h, 0])) as Record<Color, number>;
-
-export function newSlot(color: Color | null = null): Slot {
-  return { color, level: 1, turns: 0 };
+function newRow(unlocked = false): Row {
+  return { unlocked, level: unlocked ? 1 : 0, running: -1, batch: 0, apprentice: false, boosts: 0, tin: 0 };
 }
 
 export function newGame(now = Date.now()): GameState {
   return {
-    version: 2,
+    version: 3,
     lastSeen: now,
     coins: 0,
-    pigment: zero(),
-    tin: zero(),
-    earned: zero(),
-    owned: ["red"],
-    wheels: [{ slots: [newSlot("red")] }],
-    workshop: {},
+    pigment: Object.fromEntries(HUES.map((h) => [h, 0])) as Record<Color, number>,
+    rows: Object.fromEntries(HUES.map((h) => [h, newRow(h === "red")])) as Record<Color, Row>,
+    offers: [],
     easel: null,
-    lastComp: null,
+    nextId: 1,
     painted: 0,
     hung: [],
-    stats: { taps: 0, chimes: 0, playSeconds: 0, sold: 0, coinsEarned: 0, spilled: 0 },
+    studio: {},
+    buy: 1,
+    stats: { taps: 0, playSeconds: 0, sold: 0, coinsEarned: 0, spilled: 0 },
   };
 }
 
-const KEY = "colortime.save.v2";
+const KEY = "colortime.save.v3";
 
 export function save(state: GameState, storage: Storage = localStorage): void {
   try {
     storage.setItem(KEY, JSON.stringify(state));
   } catch {
-    // Storage full or blocked: the game keeps running, progress just isn't kept
+    /* storage blocked: the game keeps running */
   }
 }
 
@@ -95,15 +75,9 @@ export function load(storage: Storage = localStorage): GameState | null {
     const raw = storage.getItem(KEY);
     if (!raw) return null;
     const s = JSON.parse(raw) as GameState;
-    if (s.version !== 2) return null;
+    if (s.version !== 3) return null;
     const fresh = newGame(s.lastSeen);
-    return {
-      ...fresh, ...s,
-      pigment: { ...fresh.pigment, ...s.pigment },
-      tin: { ...fresh.tin, ...s.tin },
-      earned: { ...fresh.earned, ...s.earned },
-      stats: { ...fresh.stats, ...s.stats },
-    };
+    return { ...fresh, ...s, pigment: { ...fresh.pigment, ...s.pigment }, rows: { ...fresh.rows, ...s.rows }, stats: { ...fresh.stats, ...s.stats } };
   } catch {
     return null;
   }
@@ -111,8 +85,7 @@ export function load(storage: Storage = localStorage): GameState | null {
 
 export function wipe(storage: Storage = localStorage): void {
   try {
-    storage.removeItem(KEY);
-    storage.removeItem("colortime.save.v1");
+    for (const k of ["colortime.save.v1", "colortime.save.v2", KEY]) storage.removeItem(k);
   } catch {
     /* ignore */
   }
