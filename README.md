@@ -8,6 +8,8 @@ A cozy idle game for phones: clock-like color wheels fill ring by ring, pay out 
 | --- | --- |
 | [docs/design.md](docs/design.md) | Game design document: market, core loop, colors, Studio, paintings, progression, economy, monetization, roadmap |
 | [docs/upgrades.md](docs/upgrades.md) | Upgrades and skill trees: the four trees, repeatable upgrades, ring placement, experimental ideas |
+| [docs/economy.md](docs/economy.md) | The current economy: wheels, tin, easel, coins. Replaces paint-priced upgrades |
+| [game/](game/) | Playable prototype, live at https://mostbrutalpreanut.github.io/colortime/ |
 | [art/](art/) | fal.ai pipeline for testing painting styles and layered pieces |
 
 ## Live versions
