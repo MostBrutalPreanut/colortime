@@ -1,0 +1,31 @@
+{
+  "models": {
+    "flux-2-pro": {"endpoint": "fal-ai/flux-2-pro", "args": {"image_size": "portrait_4_3", "output_format": "jpeg"}},
+    "seedream-4": {"endpoint": "fal-ai/bytedance/seedream/v4/text-to-image", "args": {"image_size": "portrait_4_3"}},
+    "nano-banana-pro": {"endpoint": "fal-ai/nano-banana-pro", "args": {"aspect_ratio": "3:4", "output_format": "jpeg"}}
+  },
+
+  "styles": {
+    "vignette": "A small, quiet watercolor vignette painted on thick textured cold-press paper. The painting fills only the middle of the sheet, with wide blank off-white paper all around it. The scene sits inside a {shape} with soft, hand-painted, slightly uneven edges, no outline and no frame. Flat layered transparent washes, visible paper grain and pigment granulation, gentle blooms, very simple shapes and silhouettes, minimal detail. Muted earthy palette of yellow ochre, sage green, terracotta, slate blue and warm grey. Calm, cozy, storybook mood. Subject: {scene}. No text, no signature, no border.",
+    "inkwash": "A loose sketchbook illustration: confident thin black ink linework with fresh watercolor washes over it, lots of white paper showing, vignette edges that fade unfinished into textured cold-press paper. Bright daylight palette of sky blue, terracotta, leafy green and warm sand. Subject: {scene}. No text, no signature.",
+    "dreamy": "A dreamy painterly illustration in a vertical card format, full bleed. The background is made of visible impressionist brush dabs in soft pastel violet, pink and blue. One small whimsical subject in dark silhouette with a few warm accents, slightly surreal and poetic, gentle light. Subject: {scene}. No text, no border."
+  },
+
+  "subjects": [
+    {"id": "heron", "shape": "tall arched window shape", "scene": "a grey heron standing in shallow water at dusk, a low orange sun, a few reeds"},
+    {"id": "train", "shape": "pill-shaped window with rounded top and bottom", "scene": "a small red steam train crossing golden hills, soft grey mountains behind"},
+    {"id": "cottage", "shape": "tall rectangle with an irregular, torn top edge", "scene": "a white cottage with a terracotta roof on rocks above the sea"},
+    {"id": "cat", "shape": "round-topped stone window", "scene": "a ginger cat sitting on a stone window ledge, looking out at a yellow field"}
+  ],
+
+  "layers": {
+    "model": "flux-2-pro",
+    "ground": "A small, quiet watercolor vignette on thick textured cold-press paper, inside a tall arched window shape with soft hand-painted edges, wide blank off-white paper around it. Only an empty landscape background: a calm lake at dusk, soft peach and slate-blue sky, low distant sage hills, a pale low sun. No animals, no buildings, no boats, no plants in the foreground. Flat layered transparent washes, paper grain, muted earthy palette. No text, no border.",
+    "piece": "A single {object}, painted in loose transparent watercolor with flat simple washes and soft edges, muted earthy palette of slate grey, ochre, sage and terracotta, visible paper grain. The object is isolated in the center of a plain pure white background, with no ground, no shadow, no scenery and nothing else in the image. No text.",
+    "pieces": [
+      {"id": "heron", "object": "grey heron standing, seen from the side", "x": 0.58, "y": 0.62, "w": 0.34},
+      {"id": "boat", "object": "small wooden rowboat, seen from the side", "x": 0.33, "y": 0.68, "w": 0.30},
+      {"id": "reeds", "object": "clump of tall reeds and grasses", "x": 0.24, "y": 0.74, "w": 0.30}
+    ]
+  }
+}
