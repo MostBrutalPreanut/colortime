@@ -1,0 +1,20 @@
+{
+  "name": "colortime",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "sim": "vite-node scripts/sim.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.6",
+    "vite-node": "^3.2.4",
+    "vitest": "^3.2.7"
+  }
+}
