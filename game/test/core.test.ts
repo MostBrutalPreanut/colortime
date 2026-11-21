@@ -118,8 +118,27 @@ describe("commissions", () => {
     for (const o of s.offers) for (const l of o.layers) expect(s.rows[l.color].unlocked).toBe(true);
   });
 
+  it("can't hang until the Gallery Wall is bought", () => {
+    const s = newGame(0);
+    fillOffers(s);
+    accept(s, s.offers[0].id);
+    s.pigment.red = 50;
+    tick(s, 0.1);
+    expect(hang(s)).toBe(false);
+  });
+
+  it("never strands the player: an unpaintable, unaffordable board gets an apple", () => {
+    const s = newGame(0);
+    s.painted = 1; // the lemon lesson, which needs yellow
+    fillOffers(s);
+    expect(s.offers.map((o) => o.title)).toContain("Apple");
+  });
+
   it("hangs a painting, which speeds up its colors", () => {
     const s = rich();
+    s.painted = 4;
+    buyStudio(s, "gallery");
+    s.painted = 0;
     fillOffers(s);
     accept(s, s.offers[0].id);
     s.pigment.red = 50;

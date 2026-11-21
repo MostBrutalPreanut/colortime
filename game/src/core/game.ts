@@ -3,7 +3,7 @@
 
 import { HUES, type Color } from "./colors";
 import {
-  BACKGROUNDS, COLORS, COMMISSION_GROWTH, HANG_BONUS, HOOKS, MILESTONES, OFFERS, OFFLINE, PAINT_VALUE, PIECES,
+  BACKGROUNDS, COLORS, COMMISSION_GROWTH, HANG_BONUS, MILESTONES, OFFERS, OFFLINE, PAINT_VALUE, PIECES,
   STUDIO, TIN, TUTORIAL, VARIETY, colorDef, type PartDef, type StudioEffect,
 } from "./data";
 import type { Commission, GameState } from "./state";
@@ -20,6 +20,9 @@ export function studioCost(s: GameState, id: string): number | null {
   if (u.max !== undefined && r >= u.max) return null;
   return Math.ceil(u.first * u.growth ** r);
 }
+
+/** Paintings that can hang at once. None until the Gallery Wall is bought. */
+export const hooks = (s: GameState) => rank(s, "hooks");
 
 export const studioVisible = (s: GameState) => STUDIO.filter((u) => s.painted >= u.after);
 
@@ -156,6 +159,11 @@ function makeCommission(s: GameState, bg: PartDef, pieces: PartDef[]): Commissio
 
 /** Keep the board full: a fixed lesson early on, then random commissions using colors you have. */
 export function fillOffers(s: GameState): void {
+  stock(s);
+  rescue(s);
+}
+
+function stock(s: GameState): void {
   if (s.painted < TUTORIAL.length) {
     if (!s.easel && s.offers.length === 0) {
       const t = TUTORIAL[s.painted];
@@ -181,6 +189,20 @@ export function fillOffers(s: GameState): void {
     const c = makeCommission(s, bg, second ? [first, second] : [first]);
     if (c.layers.length && !s.offers.some((o) => o.title === c.title)) s.offers.push(c);
   }
+}
+
+/**
+ * Never strand the player: if nothing is on the easel, no offer can be painted
+ * with unlocked colors, and they can't afford to unlock what's missing, swap in
+ * an apple, which red alone can paint.
+ */
+function rescue(s: GameState): void {
+  if (s.easel || s.offers.length === 0) return;
+  const paintable = (o: Commission) => o.layers.every((l) => s.rows[l.color].unlocked);
+  const affordable = (o: Commission) =>
+    o.layers.every((l) => s.rows[l.color].unlocked || (parentsReady(s, l.color) && s.coins >= colorDef(l.color).unlock));
+  if (s.offers.some((o) => paintable(o) || affordable(o))) return;
+  s.offers.unshift(makeCommission(s, part(BACKGROUNDS, "paper"), [part(PIECES, "apple")]));
 }
 
 const tierOf = (c: Color) => COLORS.findIndex((d) => d.color === c);
@@ -244,7 +266,7 @@ export function sell(s: GameState): number {
 }
 
 export function hang(s: GameState): boolean {
-  if (!easelDone(s.easel) || s.hung.length >= HOOKS) return false;
+  if (!easelDone(s.easel) || s.hung.length >= hooks(s)) return false;
   s.hung.push({ title: s.easel!.title, colors: s.easel!.layers.map((l) => l.color) });
   finish(s);
   return true;

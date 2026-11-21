@@ -65,8 +65,7 @@ export const TIN = { base: 50, perLevel: 2, first: 15, growth: 2.4 };
 export const PAINT_VALUE: Record<Tier, number> = { 1: 3, 2: 15, 3: 60 };
 /** Richer paintings pay more: per extra color and per piece. */
 export const VARIETY = { perExtraColor: 0.3, perPiece: 0.25 };
-/** Paintings that can hang at once; each makes its colors' rows 10% faster. */
-export const HOOKS = 3;
+/** Each hung painting makes its colors' rows 10% faster. Hooks come from the Gallery Wall upgrade. */
 export const HANG_BONUS = 0.1;
 /** Commissions on offer at once */
 export const OFFERS = 3;
@@ -121,7 +120,7 @@ export const COMMISSION_GROWTH = 0.12;
 // ---------------------------------------------------------------------------
 // Studio upgrades: one-time and repeatable, bought with coins
 
-export type StudioEffect = "price" | "speed" | "offline" | "agent" | "canvas";
+export type StudioEffect = "price" | "speed" | "offline" | "agent" | "canvas" | "hooks";
 
 export interface StudioUpgrade {
   id: string;
@@ -137,6 +136,7 @@ export interface StudioUpgrade {
 
 export const STUDIO: StudioUpgrade[] = [
   { id: "frames", name: "Good Frames", text: "Paintings sell for 20% more", effect: "price", first: 150, growth: 2.2, after: 3 },
+  { id: "gallery", name: "Gallery Wall", text: "A hook to hang a painting instead of selling it: its colors turn 10% faster for good", effect: "hooks", first: 400, growth: 5, max: 5, after: 4 },
   { id: "oil", name: "Oiled Wheels", text: "Every row turns 10% faster", effect: "speed", first: 1_000, growth: 2.5, after: 4 },
   { id: "agent", name: "Art Agent", text: "Sells finished paintings and takes the best commission for you", effect: "agent", first: 5_000, growth: 1, max: 1, after: 6 },
   { id: "canvas", name: "Bigger Canvas", text: "Commissions need 3× the paint and pay 4×", effect: "canvas", first: 20_000, growth: 30, max: 10, after: 8 },

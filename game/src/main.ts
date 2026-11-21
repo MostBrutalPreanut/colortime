@@ -1,9 +1,9 @@
 import "./ui/style.css";
 import { SWATCH, type Color } from "./core/colors";
-import { COLORS, HOOKS, STUDIO, TUTORIAL, colorDef, type Tier } from "./core/data";
+import { COLORS, STUDIO, TUTORIAL, colorDef, type Tier } from "./core/data";
 import {
   accept, batchSize, boostCost, buyBoost, buyCount, buyLevels, buyStudio, catchUp, decline, easelDone,
-  fillOffers, hang, hireApprentice, inputPerParent, isFull, levelCost, missingParent, nextMilestone, parentsReady,
+  fillOffers, hang, hireApprentice, hooks, inputPerParent, isFull, levelCost, missingParent, nextMilestone, parentsReady,
   salePrice, sell, studioCost, studioVisible, tapAll, tapRow, tick, tinCap, tinCost, turnTime, unhang, unlockRow,
   upgradeTin, type Delivery,
 } from "./core/game";
@@ -86,12 +86,12 @@ function renderEasel() {
   const e = s.easel;
   if (e) {
     const done = easelDone(e);
-    shape(easelEl, `e|${e.id}|${done}|${s.hung.length}`, () => `
+    shape(easelEl, `e|${e.id}|${done}|${s.hung.length}|${hooks(s)}`, () => `
       <div class="thumb">${e.layers.map((l, i) => `<span class="band" style="--c:${SWATCH[l.color]}" data-n="layer:${i}"></span>`).join("")}</div>
       <div class="e-mid">
         <div class="e-title">${esc(e.title)}</div>
         ${done
-          ? `<div class="e-actions"><button class="btn gold" data-a="sell">Sell <span data-v="price"></span></button><button class="btn" data-a="hang" data-d="hang">Hang ${s.hung.length}/${HOOKS}</button></div>`
+          ? `<div class="e-actions"><button class="btn gold" data-a="sell">Sell <span data-v="price"></span></button>${hooks(s) ? `<button class="btn" data-a="hang" data-d="hang">Hang ${s.hung.length}/${hooks(s)}</button>` : ""}</div>`
           : `<div class="needs">${e.layers.map((l, i) => `<span class="need" data-f="short:${i}|short">${dot(l.color, 12)}<b data-v="need:${i}"></b></span>`).join("")}</div>`}
       </div>`);
     return;
@@ -118,7 +118,7 @@ function easelValues() {
     flags.set(`short:${i}`, l.done < l.amount && s.pigment[l.color] < 1 && s.rows[l.color].running < 0);
   });
   vals.set("price", `${fmt(salePrice(s, e))}`);
-  off.set("hang", s.hung.length >= HOOKS);
+  off.set("hang", s.hung.length >= hooks(s));
 }
 
 // ---------------------------------------------------------------------------
@@ -247,7 +247,7 @@ function studioHtml() {
 
 function galleryHtml() {
   const rows = s.hung.map((h, i) => `<div class="up"><div class="up-text"><b>${esc(h.title)}</b><span>${h.colors.map((c) => dot(c, 12)).join(" ")} turn 10% faster</span></div><button class="buy" data-a="unhang:${i}"><b>Take down</b></button></div>`).join("");
-  return `<h3 class="hand">Gallery</h3><p class="hint">${s.hung.length}/${HOOKS} hooks · ${s.painted} painted · ${s.stats.sold} sold</p><div class="ups">${rows || `<p class="hint">Hang a finished painting to make its colors turn faster for good.</p>`}</div><button class="btn wide" data-a="close">Close</button>`;
+  return `<h3 class="hand">Gallery</h3><p class="hint">${s.hung.length}/${hooks(s)} hooks · ${s.painted} painted · ${s.stats.sold} sold</p><div class="ups">${rows || `<p class="hint">${hooks(s) ? "Hang a finished painting to make its colors turn faster for good." : "Buy the Gallery Wall in the Studio to hang paintings instead of selling them."}</p>`}</div><button class="btn wide" data-a="close">Close</button>`;
 }
 
 function moreHtml() {
@@ -302,7 +302,7 @@ app.addEventListener("click", (ev) => {
     case "accept": accept(s, Number(arg)); break;
     case "decline": decline(s, Number(arg)); break;
     case "sell": { const p = sell(s); if (p) toast(`Sold for ${fmt(p)} coins`); break; }
-    case "hang": if (hang(s)) toast("Hung in the Gallery"); else toast(`All ${HOOKS} hooks are full`); break;
+    case "hang": if (hang(s)) toast("Hung in the Gallery"); else toast(`All ${hooks(s)} hooks are full`); break;
     case "unhang": unhang(s, Number(arg)); break;
     case "studio": if (!buyStudio(s, arg)) short(); break;
     case "modal": ui.modal = arg as Modal; break;
