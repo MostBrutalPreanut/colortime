@@ -225,12 +225,47 @@ def mockups(args):
     print(f"sheet: {out / 'sheet.jpg'}")
 
 
+def blend(args):
+    B = CONFIG["blend"]
+    urls = list(B["sources"].values())
+    runs = [r for r in B["runs"] if not args.models or r["model"] in args.models.split(",")]
+    out = run_dir("blend")
+    jobs = [(r, i) for r in runs for i in range(r["count"])]
+    print(f"{len(jobs)} images from {len(urls)} references -> {out}")
+    cells, manifest = {}, []
+
+    def work(job):
+        r, i = job
+        payload = {"prompt": B["prompt"], "image_urls": urls, "seed": (args.seed or 1000) + i, **r["args"]}
+        res = call(r["endpoint"], payload)
+        url = res["images"][0]["url"]
+        return url, fetch(url)
+
+    with cf.ThreadPoolExecutor(6) as pool:
+        futs = {pool.submit(work, j): j for j in jobs}
+        for f in cf.as_completed(futs):
+            r, i = futs[f]
+            try:
+                url, img = f.result()
+                img.convert("RGB").save(out / f"blend_{r['model']}_{i + 1}.jpg", quality=92)
+                cells[(f"take {i + 1}", r["model"])] = img
+                manifest.append({"model": r["model"], "take": i + 1, "url": url})
+                print(f"  ok   {r['model']} take {i + 1}")
+            except Exception as e:
+                manifest.append({"model": r["model"], "take": i + 1, "error": str(e)})
+                print(f"  FAIL {r['model']} take {i + 1}: {e}", file=sys.stderr)
+    takes = [f"take {i + 1}" for i in range(max(r["count"] for r in runs))]
+    contact_sheet(takes, [r["model"] for r in runs], cells, out / "sheet.jpg", tw=300, th=533)
+    (out / "manifest.json").write_text(json.dumps(manifest, indent=2))
+    print(f"sheet: {out / 'sheet.jpg'}")
+
+
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
-    ap.add_argument("mode", choices=["batch", "layers", "mockups"])
+    ap.add_argument("mode", choices=["batch", "layers", "mockups", "blend"])
     ap.add_argument("--styles")
     ap.add_argument("--subjects")
     ap.add_argument("--models")
     ap.add_argument("--seed", type=int)
     a = ap.parse_args()
-    {"batch": batch, "layers": layers, "mockups": mockups}[a.mode](a)
+    {"batch": batch, "layers": layers, "mockups": mockups, "blend": blend}[a.mode](a)

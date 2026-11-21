@@ -108,5 +108,41 @@
         "prompt": "A polished screenshot of a cozy mobile idle game called Colortime, portrait phone screen, one-thumb layout, crisp readable game UI. Top: a round 'Studio level 7' badge with an XP ring, a small paint tin holding three pigment counters (red 13.9K, yellow 3.8K, blue 18.6K), and an envelope button with a red '2' badge. Below it, the current goal: a small arched watercolor vignette of a grey heron at dusk, only its bottom third painted in color and the rest still a pencil sketch, labelled 'Quiet Heron 32%'. Center, the largest element: a round clock-like color wheel made of four concentric rings (red outer, yellow, blue, green inner) that fill up clockwise like clock hands, with thin dotted blend seams of orange, green and teal between the rings, a single clock hand and a wooden hub. A floating '+37' in red and paint droplets flying from the wheel to the counters; a small butterfly fluttering beside the wheel; a round 'x2' golden-hour button on the left. Bottom: an upgrade card shaped like a paper tag reading 'Rim Runner 5, outer ring +10% speed' with a chunky buy button costing 800, a green workshop button with a red '3' badge, and a bottom bar of five round buttons for Studio, Research, Easel, Gallery and Shop. Art style: dreamy painterly illustration with backgrounds of visible impressionist brush dabs in soft pastel violet, pink and blue, UI panels like translucent layered cards, rounded friendly shapes, gentle glow, whimsical and poetic."
       }
     ]
+  },
+  "blend": {
+    "sources": {
+      "layout": "https://v3b.fal.media/files/b/0ab3620b/oKQps8HYyTo0gX7XcZYg8_Rtinii9F.jpg",
+      "material": "https://v3b.fal.media/files/b/0ab3620c/vGdJXqhzdwh7wT3eG2EgU_GBGZOo3B.jpg"
+    },
+    "prompt": "Combine the two reference images into one mobile game screen. Image 1 sets the layout and interface: keep every element, its position and its text exactly: the 'Studio level 7' badge, the paint tin with counters 13.9K, 3.8K and 18.6K, the envelope with a red 2, the arched 'Quiet Heron 32%' painting, the large color wheel with four rings, clock hands and dotted blend seams, the '+37', the butterfly, the x2 button, the 'Rim Runner 5' tag with a Buy 800 button, the Workshop button with a red 3, and the bottom bar Studio, Research, Easel, Gallery, Shop. Image 2 sets the material and light: render the whole screen as real watercolor and gouache painted by hand on thick textured paper, seen straight from above on a wooden painter's desk in warm window light. Visible paper grain, pigment pooling at the edges of each wash, slightly uneven hand-painted rings, soft real shadows under the paper pieces and labels. Keep it a flat, readable, portrait phone screen filling the frame. No phone frame, no hands.",
+    "runs": [
+      {
+        "model": "nano-banana-pro",
+        "endpoint": "fal-ai/nano-banana-pro/edit",
+        "args": {
+          "aspect_ratio": "9:16",
+          "output_format": "jpeg",
+          "resolution": "2K"
+        },
+        "count": 2
+      },
+      {
+        "model": "seedream-4",
+        "endpoint": "fal-ai/bytedance/seedream/v4/edit",
+        "args": {
+          "image_size": "portrait_16_9"
+        },
+        "count": 2
+      },
+      {
+        "model": "flux-2-pro",
+        "endpoint": "fal-ai/flux-2-pro/edit",
+        "args": {
+          "image_size": "portrait_16_9",
+          "output_format": "jpeg"
+        },
+        "count": 2
+      }
+    ]
   }
 }
